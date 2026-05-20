@@ -1,0 +1,285 @@
+<!-- RESUME: Session 2 — add pen object, physics (gravity, bounce, spin), hardcoded test launch -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pen Flick</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #c8bfa8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Courier New', monospace;
+    user-select: none;
+    overflow: hidden;
+  }
+
+  #game-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+
+  #hud {
+    display: flex;
+    align-items: center;
+    gap: 48px;
+    font-size: 16px;
+    color: #3a3220;
+    font-weight: bold;
+    letter-spacing: 0.5px;
+  }
+
+  #hud .label {
+    font-size: 13px;
+    color: #7a6a50;
+    font-weight: normal;
+    margin-bottom: 2px;
+  }
+
+  #hud .side {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  #hud .vs {
+    font-size: 13px;
+    color: #9a8a70;
+    letter-spacing: 2px;
+  }
+
+  #status-bar {
+    font-size: 14px;
+    color: #5a4a30;
+    min-height: 20px;
+    letter-spacing: 0.3px;
+    font-style: italic;
+  }
+
+  canvas {
+    display: block;
+    border: 1px solid #a09070;
+    box-shadow:
+      3px 3px 0 #b0a080,
+      6px 6px 0 #a09070,
+      8px 8px 18px rgba(0,0,0,0.35);
+    cursor: crosshair;
+  }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <div id="hud">
+    <div class="side">
+      <div class="label">YOU</div>
+      <div id="player-lives">❤️❤️❤️</div>
+    </div>
+    <div class="vs">VS</div>
+    <div class="side">
+      <div class="label">CPU</div>
+      <div id="cpu-lives">❤️❤️❤️</div>
+    </div>
+  </div>
+
+  <div id="status-bar">Click and drag your figure to aim</div>
+
+  <canvas id="c"></canvas>
+</div>
+
+<script>
+// ─── Canvas setup ────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+// Fixed logical size; CSS scales on tiny screens if needed
+const W = 780;
+const H = 440;
+canvas.width  = W;
+canvas.height = H;
+
+// ─── Layout constants ────────────────────────────────────────────────────────
+
+const GROUND_Y     = H - 90;   // y where figures stand
+const LINE_SPACING = 26;       // notebook ruled line gap
+const MARGIN_X     = 64;       // red margin line x
+const SPIRAL_W     = 28;       // left spiral gutter width
+
+// ─── Colour palette (ink/paper theme) ────────────────────────────────────────
+
+const COL = {
+  paper:       '#f8f4ec',
+  lineRule:    '#c0cfe8',   // blue ruled lines
+  margin:      '#e8a0a0',   // red margin
+  spiralDark:  '#888',
+  spiralLight: '#ddd',
+  ink:         '#2a3baa',   // figure ink colour
+  ground:      '#c8b898',
+  groundLine:  '#b0a080',
+  labelText:   'rgba(42,59,170,0.45)',
+};
+
+// ─── Figure definitions ──────────────────────────────────────────────────────
+
+const PLAYER = { x: 160,     y: GROUND_Y };
+const CPU    = { x: W - 160, y: GROUND_Y };
+
+// ─── Notebook background ─────────────────────────────────────────────────────
+
+function drawNotebook() {
+  // Paper fill
+  ctx.fillStyle = COL.paper;
+  ctx.fillRect(0, 0, W, H);
+
+  // Spiral gutter shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  ctx.fillRect(0, 0, SPIRAL_W, H);
+
+  // Horizontal ruled lines
+  ctx.strokeStyle = COL.lineRule;
+  ctx.lineWidth   = 0.8;
+  for (let y = 48; y < H; y += LINE_SPACING) {
+    ctx.beginPath();
+    ctx.moveTo(SPIRAL_W, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+
+  // Red margin line
+  ctx.strokeStyle = COL.margin;
+  ctx.lineWidth   = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(MARGIN_X, 0);
+  ctx.lineTo(MARGIN_X, H);
+  ctx.stroke();
+
+  // Spiral binding rings
+  drawSpiral();
+
+  // Ground / desk surface
+  ctx.fillStyle = COL.ground;
+  ctx.fillRect(0, GROUND_Y + 6, W, H - GROUND_Y - 6);
+
+  // Ground edge line
+  ctx.strokeStyle = COL.groundLine;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y + 6);
+  ctx.lineTo(W, GROUND_Y + 6);
+  ctx.stroke();
+}
+
+function drawSpiral() {
+  const ringGap = 18;
+  const cx      = 14;   // center x of rings
+  const ry      = 9;    // ring height
+  const rx      = 8;    // ring width
+
+  ctx.lineWidth = 2;
+
+  for (let y = 36; y < H - 20; y += ringGap) {
+    // Back arc (lighter, behind paper)
+    ctx.strokeStyle = COL.spiralLight;
+    ctx.beginPath();
+    ctx.ellipse(cx, y, rx, ry, 0, 0, Math.PI);
+    ctx.stroke();
+
+    // Front arc (darker, in front)
+    ctx.strokeStyle = COL.spiralDark;
+    ctx.beginPath();
+    ctx.ellipse(cx, y, rx, ry, 0, Math.PI, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+// ─── Stick figure ────────────────────────────────────────────────────────────
+
+function drawFigure(fig, opts = {}) {
+  const { x, y }   = fig;
+  const col         = opts.colour   || COL.ink;
+  const headR       = 13;
+  const bodyTop     = y - 44;  // shoulders
+  const bodyBot     = y - 2;   // hips
+  const headCy      = bodyTop - headR - 2;
+  const armY        = bodyTop + 10;
+  const armSpread   = 22;
+  const legSpread   = 16;
+  const legLen      = 30;
+
+  ctx.save();
+  ctx.strokeStyle = col;
+  ctx.lineWidth   = 2.2;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+
+  // Head
+  ctx.beginPath();
+  ctx.arc(x, headCy, headR, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Body
+  ctx.beginPath();
+  ctx.moveTo(x, bodyTop);
+  ctx.lineTo(x, bodyBot);
+  ctx.stroke();
+
+  // Arms — slight raise on dominant side
+  ctx.beginPath();
+  ctx.moveTo(x - armSpread, armY + 4);
+  ctx.lineTo(x,             armY);
+  ctx.lineTo(x + armSpread, armY - 6);
+  ctx.stroke();
+
+  // Legs
+  ctx.beginPath();
+  ctx.moveTo(x, bodyBot);
+  ctx.lineTo(x - legSpread, bodyBot + legLen);
+  ctx.moveTo(x, bodyBot);
+  ctx.lineTo(x + legSpread, bodyBot + legLen);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// ─── Figure labels ───────────────────────────────────────────────────────────
+
+function drawLabels() {
+  ctx.fillStyle = COL.labelText;
+  ctx.font      = 'bold 11px Courier New';
+  ctx.textAlign = 'center';
+
+  ctx.fillText('YOU', PLAYER.x, PLAYER.y + 50);
+  ctx.fillText('CPU', CPU.x,    CPU.y    + 50);
+
+  ctx.textAlign = 'left'; // reset
+}
+
+// ─── Main render ─────────────────────────────────────────────────────────────
+
+function render() {
+  drawNotebook();
+  drawFigure(PLAYER);
+  drawFigure(CPU);
+  drawLabels();
+}
+
+// ─── Game loop ───────────────────────────────────────────────────────────────
+
+function loop() {
+  ctx.clearRect(0, 0, W, H);
+  render();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
