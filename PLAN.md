@@ -13,8 +13,8 @@
 | 1 | Static Scene | Notebook canvas, spiral binding, stick figures, HUD shell | ✅ Done |
 | 2 | Pen Physics | Arc physics built — superseded by line-shot pivot | ✅ Done (replaced in S4) |
 | 3 | Drag Input & Aim | Slingshot drag, rubber-band line, trajectory preview, touch support | ✅ Done |
-| 4 | Line-Shot Mechanic | Replace arc physics with animated straight ink line + paper marks | ⬜ Next |
-| 5 | Hit Detection & Turns | Line-rect intersection, lives system, state machine, win/lose | ⬜ |
+| 4 | Line-Shot Mechanic | Replace arc physics with animated straight ink line + paper marks | ✅ Done |
+| 5 | Hit Detection & Turns | Line-rect intersection, lives system, state machine, win/lose | ⬜ Next |
 | 6 | CPU AI | Angle calculation + random spread, difficulty levels | ⬜ |
 | 7 | Polish & Feel | Hit flash, ink splatter, Web Audio sounds, personality messages | ⬜ |
 
@@ -41,7 +41,7 @@
 - `Power: N%` shown in status bar while dragging
 - `launchFromDrag()` fires pen on mouse/touch release
 
-### ⬜ Session 4 — Line-Shot Mechanic *(next)*
+### ✅ Session 4 — Line-Shot Mechanic
 - Remove `createPen / stepPen / drawPen` and arc physics constants
 - Add `Shot { x1, y1, x2, y2, progress, done }` object
 - `stepShot()` advances progress 0→1 over ~18 frames
