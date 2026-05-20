@@ -1,4 +1,4 @@
-<!-- RESUME: Session 2 — add pen object, physics (gravity, bounce, spin), hardcoded test launch -->
+<!-- RESUME: Session 3 — add mouse/touch drag input, aim line, dotted trajectory preview, launch on release -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -131,6 +131,180 @@ const COL = {
 
 const PLAYER = { x: 160,     y: GROUND_Y };
 const CPU    = { x: W - 160, y: GROUND_Y };
+
+// ─── Physics constants ───────────────────────────────────────────────────────
+
+const GRAVITY      = 0.38;   // px / frame²
+const BOUNCE_VY    = 0.42;   // vy kept after ground bounce
+const BOUNCE_VX    = 0.80;   // vx kept after ground bounce
+const SPIN_DECAY   = 0.70;   // spin kept after bounce
+const STOP_THRESH  = 0.9;    // vy below this → pen comes to rest
+
+// ─── Pen state ───────────────────────────────────────────────────────────────
+
+// null when not in flight; object when flying or rolling to a stop
+let pen = null;
+
+function createPen(x, y, vx, vy) {
+  return {
+    x, y,
+    vx, vy,
+    angle: Math.atan2(vy, vx),
+    spin:  (vx > 0 ? 1 : -1) * (0.10 + Math.random() * 0.08),
+    alive: true,
+  };
+}
+
+// ─── Pen physics step ────────────────────────────────────────────────────────
+
+function stepPen() {
+  if (!pen) return;
+
+  pen.x     += pen.vx;
+  pen.y     += pen.vy;
+  pen.vy    += GRAVITY;
+  pen.angle += pen.spin;
+
+  // Ground bounce
+  if (pen.y >= GROUND_Y) {
+    pen.y  = GROUND_Y;
+    pen.vy = -pen.vy * BOUNCE_VY;
+    pen.vx *=  BOUNCE_VX;
+    pen.spin *= SPIN_DECAY;
+
+    if (Math.abs(pen.vy) < STOP_THRESH) {
+      pen.vy   = 0;
+      pen.spin = 0;
+      // Let it slide to a stop then clear
+      if (Math.abs(pen.vx) < 0.3) {
+        pen = null;
+        onPenSettled();
+        return;
+      }
+    }
+  }
+
+  // Off left/right edge — clear silently
+  if (pen.x < -80 || pen.x > W + 80) {
+    pen = null;
+    onPenSettled();
+  }
+}
+
+// Called when pen finishes its flight — placeholder for game logic (Session 4)
+function onPenSettled() {}
+
+// ─── Pen visual ──────────────────────────────────────────────────────────────
+
+const PEN_LEN  = 62;   // total pen length in px
+const PEN_W    = 7;    // barrel diameter
+
+function drawPen() {
+  if (!pen) return;
+
+  ctx.save();
+  ctx.translate(pen.x, pen.y);
+  ctx.rotate(pen.angle);
+
+  const half = PEN_LEN / 2;
+
+  // ── Barrel (clear plastic body) ──────────────────────────────────────────
+  ctx.fillStyle   = 'rgba(220,215,200,0.88)';
+  ctx.strokeStyle = 'rgba(160,150,130,0.7)';
+  ctx.lineWidth   = 0.8;
+  // Main barrel: from tip-side to cap-side  (tip at -half, cap at +half)
+  roundRect(ctx, -half + 8, -PEN_W / 2, PEN_LEN - 18, PEN_W, 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // ── Ink tube visible through barrel ──────────────────────────────────────
+  ctx.fillStyle = 'rgba(42,59,170,0.5)';
+  roundRect(ctx, -half + 10, -1.2, PEN_LEN - 30, 2.4, 1);
+  ctx.fill();
+
+  // ── Grip section (rubberised middle third) ────────────────────────────────
+  const gripStart = -10;
+  const gripLen   = 18;
+  ctx.fillStyle   = 'rgba(80,70,60,0.18)';
+  roundRect(ctx, gripStart, -PEN_W / 2, gripLen, PEN_W, 2);
+  ctx.fill();
+  // Grip ridges
+  ctx.strokeStyle = 'rgba(80,70,60,0.25)';
+  ctx.lineWidth   = 1;
+  for (let i = 0; i < 5; i++) {
+    const rx = gripStart + 2 + i * 3.2;
+    ctx.beginPath();
+    ctx.moveTo(rx, -PEN_W / 2 + 1);
+    ctx.lineTo(rx,  PEN_W / 2 - 1);
+    ctx.stroke();
+  }
+
+  // ── Cap (blue, right end) ─────────────────────────────────────────────────
+  ctx.fillStyle   = '#2a5fc4';
+  ctx.strokeStyle = '#1a3f94';
+  ctx.lineWidth   = 0.8;
+  roundRect(ctx, half - 14, -PEN_W / 2, 14, PEN_W, 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Cap clip
+  ctx.fillStyle = '#1a3f94';
+  ctx.fillRect(half - 12, -PEN_W / 2 - 2, 3, PEN_W + 4);
+
+  // ── Tip (metallic cone, left end) ─────────────────────────────────────────
+  ctx.fillStyle   = '#b0a890';
+  ctx.strokeStyle = '#908070';
+  ctx.lineWidth   = 0.8;
+  ctx.beginPath();
+  ctx.moveTo(-half,     0);
+  ctx.lineTo(-half + 9, -PEN_W / 2);
+  ctx.lineTo(-half + 9,  PEN_W / 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Ball tip dot
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(-half, 0, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+// ─── Rounded rect helper ─────────────────────────────────────────────────────
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y,     x + w, y + r,     r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x,     y + h, x,     y + h - r, r);
+  ctx.lineTo(x,     y + r);
+  ctx.arcTo(x,     y,     x + r, y,         r);
+  ctx.closePath();
+}
+
+// ─── Test auto-launch ─────────────────────────────────────────────────────────
+// Fires a pen from the player figure toward the CPU on load so physics
+// are immediately visible. Removed in Session 3 when real input is added.
+
+setTimeout(() => {
+  const fromX  = PLAYER.x;
+  const fromY  = PLAYER.y - 50;  // roughly figure chest height
+  const toX    = CPU.x;
+  const toY    = CPU.y - 50;
+  const dist   = Math.hypot(toX - fromX, toY - fromY);
+  const speed  = 13;
+  pen = createPen(
+    fromX, fromY,
+    (toX - fromX) / dist * speed,
+    (toY - fromY) / dist * speed - 3   // slight upward arc
+  );
+}, 800);
 
 // ─── Notebook background ─────────────────────────────────────────────────────
 
@@ -269,12 +443,14 @@ function render() {
   drawFigure(PLAYER);
   drawFigure(CPU);
   drawLabels();
+  drawPen();
 }
 
 // ─── Game loop ───────────────────────────────────────────────────────────────
 
 function loop() {
   ctx.clearRect(0, 0, W, H);
+  stepPen();
   render();
   requestAnimationFrame(loop);
 }
