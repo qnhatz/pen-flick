@@ -1,4 +1,4 @@
-<!-- RESUME: Session 5 — hit detection (line-rect intersection), lives system, state machine, win/lose, restart -->
+<!-- RESUME: Session 7 — polish: hit flash wobble, ink splatter, Web Audio sounds, personality status messages -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -73,6 +73,36 @@
       8px 8px 18px rgba(0,0,0,0.35);
     cursor: crosshair;
   }
+
+  #difficulty {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #7a6a50;
+    letter-spacing: 0.3px;
+  }
+
+  .diff-btn {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 4px 13px;
+    border: 1.5px solid #b0a080;
+    background: #f0ead8;
+    color: #5a4a30;
+    cursor: pointer;
+    border-radius: 3px;
+    letter-spacing: 0.4px;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .diff-btn:hover  { background: #e0d4b8; }
+
+  .diff-btn.active {
+    background: #2a3baa;
+    color: #fff;
+    border-color: #2a3baa;
+  }
 </style>
 </head>
 <body>
@@ -92,6 +122,13 @@
   <div id="status-bar">Click and drag your figure to aim</div>
 
   <canvas id="c"></canvas>
+
+  <div id="difficulty">
+    <span>Difficulty:</span>
+    <button class="diff-btn" data-diff="easy">Easy</button>
+    <button class="diff-btn active" data-diff="medium">Medium</button>
+    <button class="diff-btn" data-diff="hard">Hard</button>
+  </div>
 </div>
 
 <script>
@@ -266,25 +303,48 @@ function endGame(msg) {
   gameOverMsg = msg;
 }
 
+// ─── Difficulty ───────────────────────────────────────────────────────────────
+
+const DIFF = {
+  easy:   { spread: 0.65, wildChance: 0.22, thinkMin: 900,  thinkMax: 1600 },
+  medium: { spread: 0.30, wildChance: 0,    thinkMin: 500,  thinkMax: 900  },
+  hard:   { spread: 0.07, wildChance: 0,    thinkMin: 220,  thinkMax: 480  },
+};
+let difficulty = 'medium';
+
+document.querySelectorAll('.diff-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    difficulty = btn.dataset.diff;
+    document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  });
+});
+
 // ─── CPU turn ─────────────────────────────────────────────────────────────────
 
 function startCpuTurn() {
   if (gameState === 'gameover') return;
   gameState = 'cpu_thinking';
   setStatus('CPU is aiming…');
-  setTimeout(cpuShoot, 500 + Math.random() * 400);
+  const d     = DIFF[difficulty];
+  const delay = d.thinkMin + Math.random() * (d.thinkMax - d.thinkMin);
+  setTimeout(cpuShoot, delay);
 }
 
 function cpuShoot() {
   if (gameState === 'gameover') return;
-  const fromX  = CPU.x;
-  const fromY  = CPU.y - 50;
-  const toX    = PLAYER.x;
-  const toY    = PLAYER.y - HIT_CY_OFFSET;
-  const base   = Math.atan2(toY - fromY, toX - fromX);
-  const spread = (Math.random() - 0.5) * 0.55;   // ±0.27 rad (~15°)
-  const power  = 0.45 + Math.random() * 0.55;
-  gameState = 'cpu_shooting';
+  const d     = DIFF[difficulty];
+  const fromX = CPU.x;
+  const fromY = CPU.y - 50;
+  const base  = Math.atan2((PLAYER.y - HIT_CY_OFFSET) - fromY, PLAYER.x - fromX);
+
+  // Easy: occasional wild shot that deliberately misses wide
+  const spread = (difficulty === 'easy' && Math.random() < d.wildChance)
+    ? (Math.random() - 0.5) * 2.0
+    : (Math.random() - 0.5) * d.spread;
+
+  const power = 0.4 + Math.random() * 0.6;
+  gameState   = 'cpu_shooting';
   shot = createShot(fromX, fromY, base + spread, power, 'cpu');
 }
 
