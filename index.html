@@ -288,23 +288,168 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-// ─── Test auto-launch ─────────────────────────────────────────────────────────
-// Fires a pen from the player figure toward the CPU on load so physics
-// are immediately visible. Removed in Session 3 when real input is added.
+// ─── Drag / input state ──────────────────────────────────────────────────────
 
-setTimeout(() => {
-  const fromX  = PLAYER.x;
-  const fromY  = PLAYER.y - 50;  // roughly figure chest height
-  const toX    = CPU.x;
-  const toY    = CPU.y - 50;
-  const dist   = Math.hypot(toX - fromX, toY - fromY);
-  const speed  = 13;
-  pen = createPen(
-    fromX, fromY,
-    (toX - fromX) / dist * speed,
-    (toY - fromY) / dist * speed - 3   // slight upward arc
-  );
-}, 800);
+const DRAG_RADIUS = 55;    // px from figure center that starts a drag
+const MAX_PULL    = 110;   // max drag distance (caps power)
+const SPEED_SCALE = 0.17;  // drag px → launch speed multiplier
+
+let drag = null;   // null | { startX, startY, curX, curY }
+
+// ─── Canvas coordinate helper ────────────────────────────────────────────────
+
+function canvasPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const src  = e.touches ? e.touches[0] : e;
+  return {
+    x: (src.clientX - rect.left) * (W / rect.width),
+    y: (src.clientY - rect.top)  * (H / rect.height),
+  };
+}
+
+function nearPlayer(pos) {
+  return Math.hypot(pos.x - PLAYER.x, pos.y - (PLAYER.y - 50)) < DRAG_RADIUS;
+}
+
+// ─── Launch helper ───────────────────────────────────────────────────────────
+
+function launchFromDrag() {
+  const { startX, startY, curX, curY } = drag;
+  drag = null;
+
+  const dx   = startX - curX;   // slingshot: opposite of pull direction
+  const dy   = startY - curY;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 8) { setStatus('Drag further to flick!'); return; }
+
+  const clamped = Math.min(dist, MAX_PULL);
+  const speed   = clamped * SPEED_SCALE;
+  const nx      = dx / dist;
+  const ny      = dy / dist;
+
+  pen = createPen(startX, startY, nx * speed, ny * speed);
+  setStatus('');
+}
+
+// ─── Mouse events ────────────────────────────────────────────────────────────
+
+canvas.addEventListener('mousedown', e => {
+  if (pen) return;
+  const pos = canvasPos(e);
+  if (!nearPlayer(pos)) return;
+  drag = { startX: PLAYER.x, startY: PLAYER.y - 50, curX: pos.x, curY: pos.y };
+});
+
+canvas.addEventListener('mousemove', e => {
+  const pos = canvasPos(e);
+  canvas.style.cursor = (!pen && nearPlayer(pos)) ? 'grab' : 'crosshair';
+  if (!drag) return;
+  drag.curX = pos.x;
+  drag.curY = pos.y;
+  const dist  = Math.hypot(drag.startX - pos.x, drag.startY - pos.y);
+  const power = Math.round(Math.min(dist, MAX_PULL) / MAX_PULL * 100);
+  setStatus(`Power: ${power}%`);
+});
+
+canvas.addEventListener('mouseup', () => { if (drag) launchFromDrag(); });
+canvas.addEventListener('mouseleave', () => { drag = null; setStatus('Click and drag your figure to aim'); });
+
+// ─── Touch events ────────────────────────────────────────────────────────────
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (pen) return;
+  const pos = canvasPos(e);
+  if (!nearPlayer(pos)) return;
+  drag = { startX: PLAYER.x, startY: PLAYER.y - 50, curX: pos.x, curY: pos.y };
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!drag) return;
+  const pos = canvasPos(e);
+  drag.curX = pos.x;
+  drag.curY = pos.y;
+  const dist  = Math.hypot(drag.startX - pos.x, drag.startY - pos.y);
+  const power = Math.round(Math.min(dist, MAX_PULL) / MAX_PULL * 100);
+  setStatus(`Power: ${power}%`);
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  if (drag) launchFromDrag();
+});
+
+// ─── Aim overlay ─────────────────────────────────────────────────────────────
+
+function drawAim() {
+  if (!drag) return;
+
+  const { startX, startY, curX, curY } = drag;
+  const rawDx   = startX - curX;
+  const rawDy   = startY - curY;
+  const rawDist = Math.hypot(rawDx, rawDy);
+  if (rawDist < 4) return;
+
+  const clamped = Math.min(rawDist, MAX_PULL);
+  const nx      = rawDx / rawDist;
+  const ny      = rawDy / rawDist;
+  const pullX   = startX - nx * clamped;   // clamped visual anchor
+  const pullY   = startY - ny * clamped;
+  const power   = clamped / MAX_PULL;      // 0–1
+
+  ctx.save();
+
+  // ── Rubber-band pull line ─────────────────────────────────────────────────
+  ctx.strokeStyle = `rgba(200,60,60,${0.3 + power * 0.45})`;
+  ctx.lineWidth   = 1.5 + power;
+  ctx.setLineDash([5, 4]);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(pullX, pullY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Pull-point circle
+  ctx.fillStyle   = `rgba(200,60,60,${0.15 + power * 0.3})`;
+  ctx.strokeStyle = `rgba(200,60,60,${0.55 + power * 0.3})`;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  ctx.arc(pullX, pullY, 5 + power * 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // ── Predicted trajectory ─────────────────────────────────────────────────
+  const speed = clamped * SPEED_SCALE;
+  let px = startX, py = startY;
+  let pvx = nx * speed, pvy = ny * speed;
+
+  ctx.strokeStyle = `rgba(42,59,170,${0.15 + power * 0.25})`;
+  ctx.lineWidth   = 1.5;
+  ctx.setLineDash([3, 8]);
+  ctx.beginPath();
+  ctx.moveTo(px, py);
+
+  for (let i = 0; i < 60; i++) {
+    px  += pvx;
+    py  += pvy;
+    pvy += GRAVITY;
+    if (py > GROUND_Y || px < 0 || px > W) break;
+    ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.restore();
+}
+
+// ─── Status bar helper ───────────────────────────────────────────────────────
+
+function setStatus(msg) {
+  document.getElementById('status-bar').textContent =
+    msg || 'Click and drag your figure to aim';
+}
 
 // ─── Notebook background ─────────────────────────────────────────────────────
 
@@ -443,6 +588,7 @@ function render() {
   drawFigure(PLAYER);
   drawFigure(CPU);
   drawLabels();
+  drawAim();
   drawPen();
 }
 
