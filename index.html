@@ -132,6 +132,36 @@ const COL = {
 const PLAYER = { x: 160,     y: GROUND_Y };
 const CPU    = { x: W - 160, y: GROUND_Y };
 
+// hit zone: circle centered on figure torso
+const HIT_CY_OFFSET = 38;   // px above foot line → torso centre
+const HIT_RADIUS    = 32;   // px radius of hit zone
+
+// ─── Game state ───────────────────────────────────────────────────────────────
+
+// phases: player_aim | player_shooting | cpu_thinking | cpu_shooting | gameover
+let gameState   = 'player_aim';
+let playerLives = 3;
+let cpuLives    = 3;
+let hitFlash    = null;   // { who:'player'|'cpu', timer }
+let gameOverMsg = '';
+
+function updateHUD() {
+  document.getElementById('player-lives').textContent = '❤️'.repeat(playerLives);
+  document.getElementById('cpu-lives').textContent    = '❤️'.repeat(cpuLives);
+}
+
+function restartGame() {
+  playerLives = 3;
+  cpuLives    = 3;
+  shot        = null;
+  marks       = [];
+  drag        = null;
+  hitFlash    = null;
+  gameState   = 'player_aim';
+  updateHUD();
+  setStatus('');
+}
+
 // ─── Shot constants ───────────────────────────────────────────────────────────
 
 const SHOT_MAX_LEN    = Math.hypot(W, H) * 1.1;  // always crosses the canvas
@@ -143,9 +173,30 @@ const SHOT_FRAMES_MAX = 24;   // slowest shot (low power)
 let shot  = null;   // active shot: { x1,y1, angle, frames, progress, owner }
 let marks = [];     // past shots that stay on paper: { x1,y1, x2,y2, owner }
 
+// ─── Hit detection ───────────────────────────────────────────────────────────
+
+// Returns distance along shot ray at which it enters the target hit-circle,
+// or Infinity if it misses.
+function computeHitDist(x1, y1, angle, target) {
+  const cosA = Math.cos(angle);
+  const sinA = Math.sin(angle);
+  const cx   = target.x;
+  const cy   = target.y - HIT_CY_OFFSET;
+  const fx   = x1 - cx;
+  const fy   = y1 - cy;
+  const b    = fx * cosA + fy * sinA;
+  const c    = fx * fx + fy * fy - HIT_RADIUS * HIT_RADIUS;
+  const disc = b * b - c;
+  if (disc < 0) return Infinity;
+  const t = -b - Math.sqrt(disc);
+  return t > 0 ? t : Infinity;
+}
+
 function createShot(x1, y1, angle, power, owner) {
-  const frames = Math.round(SHOT_FRAMES_MAX - power * (SHOT_FRAMES_MAX - SHOT_FRAMES_MIN));
-  return { x1, y1, angle, frames, progress: 0, owner };
+  const target  = owner === 'player' ? CPU : PLAYER;
+  const hitDist = computeHitDist(x1, y1, angle, target);
+  const frames  = Math.round(SHOT_FRAMES_MAX - power * (SHOT_FRAMES_MAX - SHOT_FRAMES_MIN));
+  return { x1, y1, angle, frames, progress: 0, owner, hitDist };
 }
 
 // ─── Shot step ───────────────────────────────────────────────────────────────
@@ -153,12 +204,25 @@ function createShot(x1, y1, angle, power, owner) {
 function stepShot() {
   if (!shot) return;
   shot.progress += 1 / shot.frames;
+  const currentLen = shot.progress * SHOT_MAX_LEN;
+
+  // Hit — freeze line at impact point
+  if (currentLen >= shot.hitDist) {
+    shot.progress = shot.hitDist / SHOT_MAX_LEN;
+    const tip = shotTip(shot);
+    marks.push({ x1: shot.x1, y1: shot.y1, x2: tip.x, y2: tip.y, owner: shot.owner });
+    const owner = shot.owner;
+    shot = null;
+    onHit(owner);
+    return;
+  }
+
   if (shot.progress >= 1) {
     shot.progress = 1;
     const tip = shotTip(shot);
     marks.push({ x1: shot.x1, y1: shot.y1, x2: tip.x, y2: tip.y, owner: shot.owner });
     shot = null;
-    onShotDone();
+    onMiss();
   }
 }
 
@@ -167,8 +231,62 @@ function shotTip(s) {
   return { x: s.x1 + Math.cos(s.angle) * t, y: s.y1 + Math.sin(s.angle) * t };
 }
 
-// Stub — game logic wired in Session 5
-function onShotDone() {}
+// ─── Turn outcomes ────────────────────────────────────────────────────────────
+
+function onHit(owner) {
+  if (owner === 'player') {
+    cpuLives--;
+    hitFlash = { who: 'cpu', timer: 35 };
+    updateHUD();
+    if (cpuLives <= 0) { endGame('You win! 🎉'); return; }
+    setStatus('Hit! CPU loses a life.');
+    setTimeout(startCpuTurn, 1000);
+  } else {
+    playerLives--;
+    hitFlash = { who: 'player', timer: 35 };
+    updateHUD();
+    if (playerLives <= 0) { endGame('CPU wins! 😤'); return; }
+    setStatus('Ouch! Your turn.');
+    gameState = 'player_aim';
+  }
+}
+
+function onMiss() {
+  if (gameState === 'player_shooting') {
+    setStatus('Missed! CPU\'s turn...');
+    setTimeout(startCpuTurn, 800);
+  } else {
+    setStatus('CPU missed! Your turn.');
+    gameState = 'player_aim';
+  }
+}
+
+function endGame(msg) {
+  gameState   = 'gameover';
+  gameOverMsg = msg;
+}
+
+// ─── CPU turn ─────────────────────────────────────────────────────────────────
+
+function startCpuTurn() {
+  if (gameState === 'gameover') return;
+  gameState = 'cpu_thinking';
+  setStatus('CPU is aiming…');
+  setTimeout(cpuShoot, 500 + Math.random() * 400);
+}
+
+function cpuShoot() {
+  if (gameState === 'gameover') return;
+  const fromX  = CPU.x;
+  const fromY  = CPU.y - 50;
+  const toX    = PLAYER.x;
+  const toY    = PLAYER.y - HIT_CY_OFFSET;
+  const base   = Math.atan2(toY - fromY, toX - fromX);
+  const spread = (Math.random() - 0.5) * 0.55;   // ±0.27 rad (~15°)
+  const power  = 0.45 + Math.random() * 0.55;
+  gameState = 'cpu_shooting';
+  shot = createShot(fromX, fromY, base + spread, power, 'cpu');
+}
 
 // ─── Shot visuals ─────────────────────────────────────────────────────────────
 
@@ -239,6 +357,7 @@ function launchFromDrag() {
   const power = Math.min(dist, MAX_PULL) / MAX_PULL;  // 0–1
   const angle = Math.atan2(dy, dx);                   // direction (slingshot-reversed)
 
+  gameState = 'player_shooting';
   shot = createShot(startX, startY, angle, power, 'player');
   setStatus('');
 }
@@ -246,7 +365,8 @@ function launchFromDrag() {
 // ─── Mouse events ────────────────────────────────────────────────────────────
 
 canvas.addEventListener('mousedown', e => {
-  if (shot) return;
+  if (gameState === 'gameover') { restartGame(); return; }
+  if (gameState !== 'player_aim') return;
   const pos = canvasPos(e);
   if (!nearPlayer(pos)) return;
   drag = { startX: PLAYER.x, startY: PLAYER.y - 50, curX: pos.x, curY: pos.y };
@@ -254,7 +374,7 @@ canvas.addEventListener('mousedown', e => {
 
 canvas.addEventListener('mousemove', e => {
   const pos = canvasPos(e);
-  canvas.style.cursor = (!shot && nearPlayer(pos)) ? 'grab' : 'crosshair';
+  canvas.style.cursor = (gameState === 'player_aim' && nearPlayer(pos)) ? 'grab' : 'crosshair';
   if (!drag) return;
   drag.curX = pos.x;
   drag.curY = pos.y;
@@ -270,7 +390,8 @@ canvas.addEventListener('mouseleave', () => { drag = null; setStatus('Click and 
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
-  if (shot) return;
+  if (gameState === 'gameover') { restartGame(); return; }
+  if (gameState !== 'player_aim') return;
   const pos = canvasPos(e);
   if (!nearPlayer(pos)) return;
   drag = { startX: PLAYER.x, startY: PLAYER.y - 50, curX: pos.x, curY: pos.y };
@@ -489,14 +610,46 @@ function drawLabels() {
 
 // ─── Main render ─────────────────────────────────────────────────────────────
 
+function drawGameOver() {
+  const bw = 300, bh = 120;
+  const bx = W / 2 - bw / 2, by = H / 2 - bh / 2;
+  ctx.save();
+  ctx.fillStyle   = 'rgba(248,244,236,0.94)';
+  ctx.strokeStyle = COL.ink;
+  ctx.lineWidth   = 2.5;
+  ctx.beginPath();
+  ctx.rect(bx, by, bw, bh);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle  = COL.ink;
+  ctx.font       = 'bold 32px Courier New';
+  ctx.textAlign  = 'center';
+  ctx.fillText(gameOverMsg, W / 2, by + 52);
+  ctx.font       = '14px Courier New';
+  ctx.fillStyle  = 'rgba(42,59,170,0.65)';
+  ctx.fillText('click / tap to play again', W / 2, by + 88);
+  ctx.textAlign  = 'left';
+  ctx.restore();
+}
+
 function render() {
   drawNotebook();
   drawMarks();
-  drawFigure(PLAYER);
-  drawFigure(CPU);
+
+  // Hit flash: briefly draw struck figure in red
+  if (hitFlash) {
+    hitFlash.timer--;
+    if (hitFlash.timer <= 0) hitFlash = null;
+  }
+  const playerCol = (hitFlash?.who === 'player') ? '#c0392b' : COL.ink;
+  const cpuCol    = (hitFlash?.who === 'cpu')    ? '#c0392b' : COL.ink;
+
+  drawFigure(PLAYER, { colour: playerCol });
+  drawFigure(CPU,    { colour: cpuCol });
   drawLabels();
   drawAim();
   drawShot();
+  if (gameState === 'gameover') drawGameOver();
 }
 
 // ─── Game loop ───────────────────────────────────────────────────────────────
