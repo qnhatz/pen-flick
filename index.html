@@ -1,4 +1,4 @@
-<!-- RESUME: Session 3 — add mouse/touch drag input, aim line, dotted trajectory preview, launch on release -->
+<!-- RESUME: Session 5 — hit detection (line-rect intersection), lives system, state machine, win/lose, restart -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -132,167 +132,81 @@ const COL = {
 const PLAYER = { x: 160,     y: GROUND_Y };
 const CPU    = { x: W - 160, y: GROUND_Y };
 
-// ─── Physics constants ───────────────────────────────────────────────────────
+// ─── Shot constants ───────────────────────────────────────────────────────────
 
-const GRAVITY      = 0.38;   // px / frame²
-const BOUNCE_VY    = 0.42;   // vy kept after ground bounce
-const BOUNCE_VX    = 0.80;   // vx kept after ground bounce
-const SPIN_DECAY   = 0.70;   // spin kept after bounce
-const STOP_THRESH  = 0.9;    // vy below this → pen comes to rest
+const SHOT_MAX_LEN    = Math.hypot(W, H) * 1.1;  // always crosses the canvas
+const SHOT_FRAMES_MIN = 10;   // fastest shot (full power)
+const SHOT_FRAMES_MAX = 24;   // slowest shot (low power)
 
-// ─── Pen state ───────────────────────────────────────────────────────────────
+// ─── Shot state ───────────────────────────────────────────────────────────────
 
-// null when not in flight; object when flying or rolling to a stop
-let pen = null;
+let shot  = null;   // active shot: { x1,y1, angle, frames, progress, owner }
+let marks = [];     // past shots that stay on paper: { x1,y1, x2,y2, owner }
 
-function createPen(x, y, vx, vy) {
-  return {
-    x, y,
-    vx, vy,
-    angle: Math.atan2(vy, vx),
-    spin:  (vx > 0 ? 1 : -1) * (0.10 + Math.random() * 0.08),
-    alive: true,
-  };
+function createShot(x1, y1, angle, power, owner) {
+  const frames = Math.round(SHOT_FRAMES_MAX - power * (SHOT_FRAMES_MAX - SHOT_FRAMES_MIN));
+  return { x1, y1, angle, frames, progress: 0, owner };
 }
 
-// ─── Pen physics step ────────────────────────────────────────────────────────
+// ─── Shot step ───────────────────────────────────────────────────────────────
 
-function stepPen() {
-  if (!pen) return;
-
-  pen.x     += pen.vx;
-  pen.y     += pen.vy;
-  pen.vy    += GRAVITY;
-  pen.angle += pen.spin;
-
-  // Ground bounce
-  if (pen.y >= GROUND_Y) {
-    pen.y  = GROUND_Y;
-    pen.vy = -pen.vy * BOUNCE_VY;
-    pen.vx *=  BOUNCE_VX;
-    pen.spin *= SPIN_DECAY;
-
-    if (Math.abs(pen.vy) < STOP_THRESH) {
-      pen.vy   = 0;
-      pen.spin = 0;
-      // Let it slide to a stop then clear
-      if (Math.abs(pen.vx) < 0.3) {
-        pen = null;
-        onPenSettled();
-        return;
-      }
-    }
-  }
-
-  // Off left/right edge — clear silently
-  if (pen.x < -80 || pen.x > W + 80) {
-    pen = null;
-    onPenSettled();
+function stepShot() {
+  if (!shot) return;
+  shot.progress += 1 / shot.frames;
+  if (shot.progress >= 1) {
+    shot.progress = 1;
+    const tip = shotTip(shot);
+    marks.push({ x1: shot.x1, y1: shot.y1, x2: tip.x, y2: tip.y, owner: shot.owner });
+    shot = null;
+    onShotDone();
   }
 }
 
-// Called when pen finishes its flight — placeholder for game logic (Session 4)
-function onPenSettled() {}
+function shotTip(s) {
+  const t = s.progress * SHOT_MAX_LEN;
+  return { x: s.x1 + Math.cos(s.angle) * t, y: s.y1 + Math.sin(s.angle) * t };
+}
 
-// ─── Pen visual ──────────────────────────────────────────────────────────────
+// Stub — game logic wired in Session 5
+function onShotDone() {}
 
-const PEN_LEN  = 62;   // total pen length in px
-const PEN_W    = 7;    // barrel diameter
+// ─── Shot visuals ─────────────────────────────────────────────────────────────
 
-function drawPen() {
-  if (!pen) return;
-
+function drawShot() {
+  if (!shot) return;
+  const tip = shotTip(shot);
   ctx.save();
-  ctx.translate(pen.x, pen.y);
-  ctx.rotate(pen.angle);
-
-  const half = PEN_LEN / 2;
-
-  // ── Barrel (clear plastic body) ──────────────────────────────────────────
-  ctx.fillStyle   = 'rgba(220,215,200,0.88)';
-  ctx.strokeStyle = 'rgba(160,150,130,0.7)';
-  ctx.lineWidth   = 0.8;
-  // Main barrel: from tip-side to cap-side  (tip at -half, cap at +half)
-  roundRect(ctx, -half + 8, -PEN_W / 2, PEN_LEN - 18, PEN_W, 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // ── Ink tube visible through barrel ──────────────────────────────────────
-  ctx.fillStyle = 'rgba(42,59,170,0.5)';
-  roundRect(ctx, -half + 10, -1.2, PEN_LEN - 30, 2.4, 1);
-  ctx.fill();
-
-  // ── Grip section (rubberised middle third) ────────────────────────────────
-  const gripStart = -10;
-  const gripLen   = 18;
-  ctx.fillStyle   = 'rgba(80,70,60,0.18)';
-  roundRect(ctx, gripStart, -PEN_W / 2, gripLen, PEN_W, 2);
-  ctx.fill();
-  // Grip ridges
-  ctx.strokeStyle = 'rgba(80,70,60,0.25)';
-  ctx.lineWidth   = 1;
-  for (let i = 0; i < 5; i++) {
-    const rx = gripStart + 2 + i * 3.2;
-    ctx.beginPath();
-    ctx.moveTo(rx, -PEN_W / 2 + 1);
-    ctx.lineTo(rx,  PEN_W / 2 - 1);
-    ctx.stroke();
-  }
-
-  // ── Cap (blue, right end) ─────────────────────────────────────────────────
-  ctx.fillStyle   = '#2a5fc4';
-  ctx.strokeStyle = '#1a3f94';
-  ctx.lineWidth   = 0.8;
-  roundRect(ctx, half - 14, -PEN_W / 2, 14, PEN_W, 2);
-  ctx.fill();
-  ctx.stroke();
-
-  // Cap clip
-  ctx.fillStyle = '#1a3f94';
-  ctx.fillRect(half - 12, -PEN_W / 2 - 2, 3, PEN_W + 4);
-
-  // ── Tip (metallic cone, left end) ─────────────────────────────────────────
-  ctx.fillStyle   = '#b0a890';
-  ctx.strokeStyle = '#908070';
-  ctx.lineWidth   = 0.8;
+  ctx.strokeStyle = shot.owner === 'player' ? 'rgba(42,59,170,0.9)' : 'rgba(180,40,40,0.9)';
+  ctx.lineWidth   = 2;
+  ctx.lineCap     = 'round';
   ctx.beginPath();
-  ctx.moveTo(-half,     0);
-  ctx.lineTo(-half + 9, -PEN_W / 2);
-  ctx.lineTo(-half + 9,  PEN_W / 2);
-  ctx.closePath();
-  ctx.fill();
+  ctx.moveTo(shot.x1, shot.y1);
+  ctx.lineTo(tip.x, tip.y);
   ctx.stroke();
-
-  // Ball tip dot
-  ctx.fillStyle = '#333';
-  ctx.beginPath();
-  ctx.arc(-half, 0, 1.5, 0, Math.PI * 2);
-  ctx.fill();
-
   ctx.restore();
 }
 
-// ─── Rounded rect helper ─────────────────────────────────────────────────────
-
-function roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.arcTo(x + w, y,     x + w, y + r,     r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-  ctx.lineTo(x + r, y + h);
-  ctx.arcTo(x,     y + h, x,     y + h - r, r);
-  ctx.lineTo(x,     y + r);
-  ctx.arcTo(x,     y,     x + r, y,         r);
-  ctx.closePath();
+function drawMarks() {
+  if (!marks.length) return;
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (const m of marks) {
+    ctx.strokeStyle = m.owner === 'player'
+      ? 'rgba(42,59,170,0.28)'
+      : 'rgba(180,40,40,0.28)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(m.x1, m.y1);
+    ctx.lineTo(m.x2, m.y2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ─── Drag / input state ──────────────────────────────────────────────────────
 
 const DRAG_RADIUS = 55;    // px from figure center that starts a drag
 const MAX_PULL    = 110;   // max drag distance (caps power)
-const SPEED_SCALE = 0.17;  // drag px → launch speed multiplier
 
 let drag = null;   // null | { startX, startY, curX, curY }
 
@@ -322,19 +236,17 @@ function launchFromDrag() {
   const dist = Math.hypot(dx, dy);
   if (dist < 8) { setStatus('Drag further to flick!'); return; }
 
-  const clamped = Math.min(dist, MAX_PULL);
-  const speed   = clamped * SPEED_SCALE;
-  const nx      = dx / dist;
-  const ny      = dy / dist;
+  const power = Math.min(dist, MAX_PULL) / MAX_PULL;  // 0–1
+  const angle = Math.atan2(dy, dx);                   // direction (slingshot-reversed)
 
-  pen = createPen(startX, startY, nx * speed, ny * speed);
+  shot = createShot(startX, startY, angle, power, 'player');
   setStatus('');
 }
 
 // ─── Mouse events ────────────────────────────────────────────────────────────
 
 canvas.addEventListener('mousedown', e => {
-  if (pen) return;
+  if (shot) return;
   const pos = canvasPos(e);
   if (!nearPlayer(pos)) return;
   drag = { startX: PLAYER.x, startY: PLAYER.y - 50, curX: pos.x, curY: pos.y };
@@ -342,7 +254,7 @@ canvas.addEventListener('mousedown', e => {
 
 canvas.addEventListener('mousemove', e => {
   const pos = canvasPos(e);
-  canvas.style.cursor = (!pen && nearPlayer(pos)) ? 'grab' : 'crosshair';
+  canvas.style.cursor = (!shot && nearPlayer(pos)) ? 'grab' : 'crosshair';
   if (!drag) return;
   drag.curX = pos.x;
   drag.curY = pos.y;
@@ -358,7 +270,7 @@ canvas.addEventListener('mouseleave', () => { drag = null; setStatus('Click and 
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
-  if (pen) return;
+  if (shot) return;
   const pos = canvasPos(e);
   if (!nearPlayer(pos)) return;
   drag = { startX: PLAYER.x, startY: PLAYER.y - 50, curX: pos.x, curY: pos.y };
@@ -420,24 +332,18 @@ function drawAim() {
   ctx.fill();
   ctx.stroke();
 
-  // ── Predicted trajectory ─────────────────────────────────────────────────
-  const speed = clamped * SPEED_SCALE;
-  let px = startX, py = startY;
-  let pvx = nx * speed, pvy = ny * speed;
+  // ── Straight-line trajectory preview ─────────────────────────────────────
+  const angle  = Math.atan2(ny, nx);
+  const preLen = SHOT_MAX_LEN;
+  const preX2  = startX + Math.cos(angle) * preLen;
+  const preY2  = startY + Math.sin(angle) * preLen;
 
-  ctx.strokeStyle = `rgba(42,59,170,${0.15 + power * 0.25})`;
-  ctx.lineWidth   = 1.5;
-  ctx.setLineDash([3, 8]);
+  ctx.strokeStyle = `rgba(42,59,170,${0.10 + power * 0.20})`;
+  ctx.lineWidth   = 1.2;
+  ctx.setLineDash([4, 9]);
   ctx.beginPath();
-  ctx.moveTo(px, py);
-
-  for (let i = 0; i < 60; i++) {
-    px  += pvx;
-    py  += pvy;
-    pvy += GRAVITY;
-    if (py > GROUND_Y || px < 0 || px > W) break;
-    ctx.lineTo(px, py);
-  }
+  ctx.moveTo(startX, startY);
+  ctx.lineTo(preX2, preY2);
   ctx.stroke();
   ctx.setLineDash([]);
 
@@ -585,18 +491,19 @@ function drawLabels() {
 
 function render() {
   drawNotebook();
+  drawMarks();
   drawFigure(PLAYER);
   drawFigure(CPU);
   drawLabels();
   drawAim();
-  drawPen();
+  drawShot();
 }
 
 // ─── Game loop ───────────────────────────────────────────────────────────────
 
 function loop() {
   ctx.clearRect(0, 0, W, H);
-  stepPen();
+  stepShot();
   render();
   requestAnimationFrame(loop);
 }
