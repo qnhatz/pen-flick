@@ -14,8 +14,8 @@
 | 2 | Pen Physics | Arc physics built — superseded by line-shot pivot | ✅ Done (replaced in S4) |
 | 3 | Drag Input & Aim | Slingshot drag, rubber-band line, trajectory preview, touch support | ✅ Done |
 | 4 | Line-Shot Mechanic | Replace arc physics with animated straight ink line + paper marks | ✅ Done |
-| 5 | Hit Detection & Turns | Line-rect intersection, lives system, state machine, win/lose | ⬜ Next |
-| 6 | CPU AI | Angle calculation + random spread, difficulty levels | ⬜ |
+| 5 | Hit Detection & Turns | Line-rect intersection, lives system, state machine, win/lose | ✅ Done |
+| 6 | CPU AI | Angle calculation + random spread, difficulty levels | ⬜ Next |
 | 7 | Polish & Feel | Hit flash, ink splatter, Web Audio sounds, personality messages | ⬜ |
 
 ---
