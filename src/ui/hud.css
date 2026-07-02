@@ -46,6 +46,22 @@ html, body {
   pointer-events: auto;
 }
 
+button.hud-chip {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.hud-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.hud-chip:not(:disabled):active {
+  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.15);
+  transform: translate(1px, 1px);
+}
+
 .hud-top-left,
 .hud-top-right {
   position: absolute;

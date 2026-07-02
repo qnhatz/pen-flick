@@ -1,6 +1,7 @@
-// RESUME: Session 5 — Turn System. Add a TurnManager tracking per-unit
-// budgets across a full turn, wire the HUD's End Turn button to switch the
-// active Player, and reset movesRemaining/shotsRemaining at turn start.
+// RESUME: Session 6 — Opponent AI. Replace MapScene's ENEMY_TURN_PLACEHOLDER_MS
+// timeout (beginEnemyTurn/beginPlayerTurn) with an AIController that picks an
+// enemy unit with budget remaining and issues a move/shot via the same
+// MoveSystem/ShotSystem-shaped resolution path the player uses.
 import { GameLoop } from './core/GameLoop';
 import { SceneManager } from './core/SceneManager';
 import { MapScene } from './scenes/MapScene';

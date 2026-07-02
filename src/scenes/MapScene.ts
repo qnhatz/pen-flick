@@ -3,6 +3,7 @@ import { renderMapToCanvas } from '../render/MapRenderer';
 import { drawUnit, drawRangeRing, drawPathPreview, drawBoomEffect } from '../render/UnitRenderer';
 import { createUnit } from '../entities/registry';
 import type { Unit } from '../entities/Unit';
+import { TurnManager } from '../systems/TurnManager';
 import { HUD, type TallyEntry } from '../ui/HUD';
 import { InputManager, type PointerPoint } from '../core/InputManager';
 import rawMapData from '../maps/map-01.json';
@@ -17,6 +18,7 @@ const CONFIRM_DELAY_MS = 250;
 const MOVE_DURATION_MS = 450;
 const BOOM_DURATION_MS = 500;
 const MISS_STATUS_DURATION_MS = 500;
+const ENEMY_TURN_PLACEHOLDER_MS = 900;
 
 type HeldMode = 'move' | 'fire';
 
@@ -45,17 +47,20 @@ function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: n
 }
 
 /**
- * Session 1 (Static Scene) + Session 2 (Selection & Radius Ring) + Session 3
- * (Move Mechanic) + Session 4 (Shot Mechanic): hold a player unit to select
- * it (move mode while moves remain, else fire mode), drag to set a
- * path/aim line clamped to the relevant range, release to animate a move
- * or resolve a shot. Hits remove the target with a BOOM burst; misses leave
- * a faint permanent mark baked onto the map.
+ * Session 1-4: hand-drawn map + units, hold-drag-release move/shot
+ * mechanics with BOOM/miss resolution (see git history for details).
+ *
+ * Session 5 — Turn System: a TurnManager tracks whose side is active and
+ * resets that side's Move/Shot budgets when a turn starts. Only the active
+ * side's units are selectable. The End Turn button hands control to the
+ * enemy side (budgets reset, a placeholder delay stands in for Session 6's
+ * AI) and then back to the player.
  */
 export class MapScene implements Scene {
   private readonly map: MapData = mapData;
   private readonly mapImage: HTMLCanvasElement;
   private readonly units: Unit[] = [];
+  private readonly turnManager: TurnManager;
   private hud: HUD | null = null;
   private input: InputManager | null = null;
 
@@ -75,6 +80,7 @@ export class MapScene implements Scene {
 
   private boomEffect: { x: number; y: number; remainingMs: number } | null = null;
   private postShotRemainingMs = 0;
+  private enemyTurnRemainingMs = 0;
 
   constructor(
     private readonly container: HTMLElement,
@@ -88,13 +94,17 @@ export class MapScene implements Scene {
     for (const spawn of this.map.spawns.enemy) {
       this.units.push(createUnit(spawn.type, spawn.x, spawn.y, 'enemy'));
     }
+
+    this.turnManager = new TurnManager(this.units);
+    this.turnManager.startTurn('player');
   }
 
   enter(): void {
-    this.hud = new HUD(this.container, 'DemonJim');
+    this.hud = new HUD(this.container, 'DemonJim', () => this.handleEndTurnClicked());
     this.hud.setTally(this.tallyEntries());
     this.showDefaultStatus();
     this.updateCountersFor(null);
+    this.updateEndTurnAvailability();
 
     this.input = new InputManager(this.canvas, {
       onPointerDown: (point) => this.handlePointerDown(point),
@@ -138,6 +148,13 @@ export class MapScene implements Scene {
       this.postShotRemainingMs -= deltaMs;
       if (this.postShotRemainingMs <= 0) this.cancelHold();
     }
+
+    if (this.enemyTurnRemainingMs > 0) {
+      this.enemyTurnRemainingMs -= deltaMs;
+      if (this.enemyTurnRemainingMs <= 0) this.beginPlayerTurn();
+    }
+
+    this.updateEndTurnAvailability();
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -162,6 +179,7 @@ export class MapScene implements Scene {
 
   private handlePointerDown(point: PointerPoint): void {
     if (this.movingUnit || this.boomEffect || this.postShotRemainingMs > 0) return;
+    if (this.turnManager.activeSide !== 'player') return;
     const unit = this.findSelectableUnitAt(point);
     if (!unit) return;
 
@@ -281,6 +299,35 @@ export class MapScene implements Scene {
     ctx.restore();
   }
 
+  private handleEndTurnClicked(): void {
+    const busy =
+      this.movingUnit !== null ||
+      this.boomEffect !== null ||
+      this.postShotRemainingMs > 0 ||
+      this.confirmDelayRemainingMs > 0;
+    if (this.turnManager.activeSide !== 'player' || busy) return;
+
+    this.cancelHold();
+    this.beginEnemyTurn();
+  }
+
+  private beginEnemyTurn(): void {
+    this.turnManager.endTurn();
+    this.hud?.setPlayerName('CPU');
+    this.hud?.setStatus('Enemy turn…');
+    this.hud?.setCounters(0, 0);
+    this.enemyTurnRemainingMs = ENEMY_TURN_PLACEHOLDER_MS;
+  }
+
+  private beginPlayerTurn(): void {
+    this.turnManager.endTurn();
+    this.enemyTurnRemainingMs = 0;
+    this.hud?.setPlayerName('DemonJim');
+    this.showDefaultStatus();
+    this.updateCountersFor(null);
+    this.hud?.setTally(this.tallyEntries());
+  }
+
   private cancelHold(): void {
     this.heldUnit = null;
     this.heldMode = null;
@@ -296,7 +343,7 @@ export class MapScene implements Scene {
 
   private findSelectableUnitAt(point: PointerPoint): Unit | null {
     for (const unit of this.units) {
-      if (unit.side !== 'player') continue;
+      if (unit.side !== this.turnManager.activeSide) continue;
       if (unit.movesRemaining <= 0 && unit.shotsRemaining <= 0) continue;
       if (Math.hypot(unit.x - point.x, unit.y - point.y) <= HIT_RADIUS) return unit;
     }
@@ -308,8 +355,17 @@ export class MapScene implements Scene {
   }
 
   private updateCountersFor(unit: Unit | null): void {
-    const reference = unit ?? this.units.find((u) => u.side === 'player');
+    const reference = unit ?? this.units.find((u) => u.side === this.turnManager.activeSide);
     this.hud?.setCounters(reference?.movesRemaining ?? 0, reference?.shotsRemaining ?? 0);
+  }
+
+  private updateEndTurnAvailability(): void {
+    const busy =
+      this.movingUnit !== null ||
+      this.boomEffect !== null ||
+      this.postShotRemainingMs > 0 ||
+      this.confirmDelayRemainingMs > 0;
+    this.hud?.setEndTurnEnabled(this.turnManager.activeSide === 'player' && !busy);
   }
 
   private tallyEntries(): TallyEntry[] {

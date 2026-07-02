@@ -10,18 +10,24 @@ export class HUD {
   private readonly movesEl: HTMLDivElement;
   private readonly shotsEl: HTMLDivElement;
   private readonly tallyEl: HTMLDivElement;
+  private readonly playerNameEl: HTMLDivElement;
+  private readonly endTurnEl: HTMLButtonElement;
 
-  constructor(container: HTMLElement, playerName: string) {
+  constructor(container: HTMLElement, playerName: string, onEndTurn: () => void) {
     this.root = document.createElement('div');
     this.root.className = 'hud';
 
+    this.endTurnEl = document.createElement('button');
+    this.endTurnEl.type = 'button';
+    this.endTurnEl.className = 'hud-chip hud-end-turn';
+    this.endTurnEl.textContent = 'End Turn';
+    this.endTurnEl.addEventListener('click', onEndTurn);
+
+    this.playerNameEl = this.makeChip(playerName, 'hud-player-name');
+
     const topLeft = document.createElement('div');
     topLeft.className = 'hud-top-left';
-    topLeft.append(
-      this.makeChip('II', 'hud-pause'),
-      this.makeChip('End Turn', 'hud-end-turn'),
-      this.makeChip(playerName, 'hud-player-name')
-    );
+    topLeft.append(this.makeChip('II', 'hud-pause'), this.endTurnEl, this.playerNameEl);
 
     this.statusEl = this.makeChip('', 'hud-status');
 
@@ -45,6 +51,14 @@ export class HUD {
   setCounters(moves: number, shots: number): void {
     this.movesEl.textContent = `${moves} Moves`;
     this.shotsEl.textContent = `${shots} Shots`;
+  }
+
+  setPlayerName(name: string): void {
+    this.playerNameEl.textContent = name;
+  }
+
+  setEndTurnEnabled(enabled: boolean): void {
+    this.endTurnEl.disabled = !enabled;
   }
 
   setTally(entries: TallyEntry[]): void {
