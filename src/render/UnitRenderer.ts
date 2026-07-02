@@ -75,3 +75,40 @@ export function drawRangeRing(ctx: CanvasRenderingContext2D, unit: Unit, radius:
   ctx.stroke();
   ctx.restore();
 }
+
+/** Line + arrowhead from a unit to the (already range-clamped) drag point. */
+export function drawPathPreview(
+  ctx: CanvasRenderingContext2D,
+  unit: Unit,
+  target: { x: number; y: number },
+  mode: 'move' | 'fire'
+): void {
+  const color = RING_COLOR[mode];
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+
+  ctx.beginPath();
+  ctx.moveTo(unit.x, unit.y);
+  ctx.lineTo(target.x, target.y);
+  ctx.stroke();
+
+  const angle = Math.atan2(target.y - unit.y, target.x - unit.x);
+  const headLen = 10;
+  ctx.beginPath();
+  ctx.moveTo(target.x, target.y);
+  ctx.lineTo(
+    target.x - headLen * Math.cos(angle - Math.PI / 6),
+    target.y - headLen * Math.sin(angle - Math.PI / 6)
+  );
+  ctx.lineTo(
+    target.x - headLen * Math.cos(angle + Math.PI / 6),
+    target.y - headLen * Math.sin(angle + Math.PI / 6)
+  );
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}

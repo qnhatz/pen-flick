@@ -83,8 +83,8 @@ pen-flick/
 | 0 | Project Scaffolding | Vite + TS project, folder structure, GitHub Pages deploy | ✅ Done |
 | 1 | Static Scene | Map renderer, HUD shell, unit sprites, first map JSON | ✅ Done |
 | 2 | Unit Selection & Radius Ring | Touch-hold to select, draw range circle | ✅ Done |
-| 3 | Move Mechanic | Drag-to-path, path preview, animate move, budget decrement | ⬜ Next |
-| 4 | Shot Mechanic | Aim drag, fire on release, line-of-fire resolve, BOOM effect | ⬜ |
+| 3 | Move Mechanic | Drag-to-path, path preview, animate move, budget decrement | ✅ Done |
+| 4 | Shot Mechanic | Aim drag, fire on release, line-of-fire resolve, BOOM effect | ⬜ Next |
 | 5 | Turn System | Move/Shot budget per unit, End Turn, player↔opponent switch | ⬜ |
 | 6 | Opponent AI | Basic CPU: pick unit, move toward/away, fire at nearest target | ⬜ |
 | 7 | Win/Lose & Polish | Unit-loss tally, game-over state, hit flash, sound | ⬜ |

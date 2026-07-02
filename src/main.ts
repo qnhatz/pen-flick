@@ -1,6 +1,7 @@
-// RESUME: Session 3 — Move Mechanic. On pointer drag from a held unit in
-// move mode, draw a path line clamped to its moveRange ring; on release,
-// animate the unit along that path and decrement movesRemaining.
+// RESUME: Session 4 — Shot Mechanic. When a held unit has no moves left
+// (heldMode === 'fire'), wire pointer drag to an aim line clamped to
+// shotRange; on release, resolve the trajectory against enemy bounding
+// boxes and show a BOOM banner + hit flash on impact, or a fading miss mark.
 import { GameLoop } from './core/GameLoop';
 import { SceneManager } from './core/SceneManager';
 import { MapScene } from './scenes/MapScene';
