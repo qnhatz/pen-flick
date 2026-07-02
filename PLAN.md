@@ -123,13 +123,17 @@ pen-flick/
 - Hit → `"BOOM!!!"` banner + hit flash/particle, damage/remove target via `entities/registry.ts` type stats.
 - Miss → line fades as a faint mark on the map (paper-ink persistence).
 - Decrement `Shots`.
-- **Skill pass (post-launch feedback):** drag-to-point aim was too easy — always hit if pointed
-  at the target. `ShotSystem.resolveFlick()` now resolves fire-mode releases from release
-  *velocity* (last ~120ms of pointer samples) instead of the held point: below a minimum
-  speed ("skid threshold") nothing fires (shot not consumed — "Too weak — flick harder!");
-  above it, direction/reach come from the flick vector, with angular jitter that grows for a
-  wobbly (non-straight) release. Move mode is unaffected. AI shots stay precise (AIController
-  doesn't "drag", so it skips this path).
+- **Skill pass v1 (superseded):** drag-to-point aim was too easy — always hit if pointed at the
+  target. First attempt resolved fire-mode releases from release *velocity* instead of the held
+  point (a "skid threshold" flick). Replaced by v2 below after further feedback.
+- **Skill pass v2 (Worms-style power/timing bar):** fire mode is now a two-stage gesture.
+  Releasing the aim drag fixes the *angle* only and starts `ShotSystem.triangleWave()`
+  oscillating a power value 0→1→0 along that direction (`"Tap to lock power! NN%"`); a second
+  tap anywhere locks the power, and `ShotSystem.resolvePoweredShot()` turns (angle, power) into
+  an impact point at `shotRange * power`. Hit detection checks proximity to that impact point
+  (not the whole flight path), so both angle *and* power have to be right — undershooting lands
+  short, overshooting flies past. Move mode is unaffected (still single-stage drag-to-point). AI
+  shots skip the whole gesture and resolve straight to an exact target.
 
 ### ✅ Session 5 — Turn System
 - `TurnManager` tracks per-unit Move/Shot remaining; HUD counters reflect the selected unit.

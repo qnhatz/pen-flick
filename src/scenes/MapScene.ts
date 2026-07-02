@@ -5,7 +5,7 @@ import { createUnit } from '../entities/registry';
 import type { Unit, UnitKind, UnitSide } from '../entities/Unit';
 import { TurnManager } from '../systems/TurnManager';
 import { AIController } from '../systems/AIController';
-import { resolveFlick, type AimSample } from '../systems/ShotSystem';
+import { triangleWave, resolvePoweredShot } from '../systems/ShotSystem';
 import { HUD, type TallyEntry } from '../ui/HUD';
 import { InputManager, type PointerPoint } from '../core/InputManager';
 import { AudioFx } from '../core/AudioFx';
@@ -15,15 +15,17 @@ import type { MapData } from '../maps/types';
 const mapData = rawMapData as unknown as MapData;
 
 const HIT_RADIUS = 22;
-const SHOT_HIT_RADIUS = 16;
+const SHOT_HIT_RADIUS = 24;
 const DRAG_DEADZONE = 8;
 const CONFIRM_DELAY_MS = 250;
 const MOVE_DURATION_MS = 450;
 const BOOM_DURATION_MS = 500;
 const MISS_STATUS_DURATION_MS = 500;
 const AI_STEP_DELAY_MS = 600;
+const POWER_CYCLE_MS = 1000;
 
 type HeldMode = 'move' | 'fire';
+type FireStage = 'aiming' | 'charging';
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
@@ -36,17 +38,6 @@ function clampToRadius(origin: PointerPoint, point: PointerPoint, radius: number
   if (dist <= radius || dist === 0) return point;
   const scale = radius / dist;
   return { x: origin.x + dx * scale, y: origin.y + dy * scale };
-}
-
-/** Distance from point (px,py) to segment (x1,y1)-(x2,y2), plus how far along the segment (0-1). */
-function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
-  const lengthSq = dx * dx + dy * dy;
-  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSq));
-  const cx = x1 + t * dx;
-  const cy = y1 + t * dy;
-  return { distance: Math.hypot(px - cx, py - cy), t };
 }
 
 /**
@@ -70,11 +61,15 @@ function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: n
  * flash alongside the BOOM burst, and skid/whoosh/boom sounds (synthesized,
  * no audio files) play on path-confirm and shot resolution.
  *
- * Skill pass: firing no longer resolves to wherever the drag point sits.
- * Release velocity (from ShotSystem.resolveFlick) decides it instead — a
- * release under the "skid threshold" speed doesn't fire at all, and a
- * wobbly (non-straight) flick adds angular jitter on top of a small
- * baseline spread. Move mode is untouched (still drag-to-point).
+ * Skill pass (v2, Worms-style): firing is a two-stage gesture. Releasing
+ * a drag fixes the aim *angle* only and starts a power value oscillating
+ * 0->1->0 along that direction (ShotSystem.triangleWave); a second tap
+ * locks the power, and reach = shotRange * power (ShotSystem.
+ * resolvePoweredShot). Hit detection checks proximity to the *impact
+ * point*, not the whole flight path, so both angle and power have to be
+ * right — undershooting lands short, overshooting flies past. Move mode
+ * is untouched (still single-stage drag-to-point). AI shots skip this
+ * whole gesture and resolve straight to an exact target.
  */
 export class MapScene implements Scene {
   private readonly map: MapData = mapData;
@@ -91,7 +86,10 @@ export class MapScene implements Scene {
   private heldOrigin: PointerPoint | null = null;
   private isDragging = false;
   private dragTarget: PointerPoint | null = null;
-  private aimSamples: AimSample[] = [];
+
+  private fireStage: FireStage | null = null;
+  private aimAngle: number | null = null;
+  private powerPhaseElapsedMs = 0;
 
   private confirmedTarget: PointerPoint | null = null;
   private confirmDelayRemainingMs = 0;
@@ -151,6 +149,12 @@ export class MapScene implements Scene {
   }
 
   update(deltaMs: number): void {
+    if (this.fireStage === 'charging') {
+      this.powerPhaseElapsedMs += deltaMs;
+      const power = triangleWave(this.powerPhaseElapsedMs, POWER_CYCLE_MS);
+      this.hud?.setStatus(`Tap to lock power! ${Math.round(power * 100)}%`);
+    }
+
     if (this.confirmedTarget && this.confirmDelayRemainingMs > 0) {
       this.confirmDelayRemainingMs -= deltaMs;
       if (this.confirmDelayRemainingMs <= 0) {
@@ -203,6 +207,14 @@ export class MapScene implements Scene {
 
       if (this.isDragging && this.dragTarget) {
         drawPathPreview(ctx, this.heldUnit, this.dragTarget, this.heldMode);
+      } else if (this.fireStage === 'charging' && this.aimAngle !== null) {
+        const power = triangleWave(this.powerPhaseElapsedMs, POWER_CYCLE_MS);
+        const reach = radius * Math.max(0.08, power);
+        const marker = {
+          x: this.heldUnit.x + Math.cos(this.aimAngle) * reach,
+          y: this.heldUnit.y + Math.sin(this.aimAngle) * reach,
+        };
+        drawPathPreview(ctx, this.heldUnit, marker, 'fire');
       }
     }
 
@@ -218,6 +230,12 @@ export class MapScene implements Scene {
   private handlePointerDown(point: PointerPoint): void {
     this.audioFx.unlock();
     if (this.gameOver) return;
+
+    if (this.fireStage === 'charging') {
+      this.lockPowerAndFire();
+      return;
+    }
+
     if (this.movingUnit || this.boomEffect || this.postShotRemainingMs > 0) return;
     if (this.turnManager.activeSide !== 'player') return;
     const unit = this.findSelectableUnitAt(point);
@@ -228,7 +246,8 @@ export class MapScene implements Scene {
     this.heldOrigin = { x: unit.x, y: unit.y };
     this.isDragging = false;
     this.dragTarget = null;
-    this.aimSamples = [{ x: point.x, y: point.y, t: performance.now() }];
+    this.fireStage = this.heldMode === 'fire' ? 'aiming' : null;
+    this.aimAngle = null;
 
     this.hud?.setStatus(this.heldMode === 'move' ? 'Hold unit to move' : 'Hold unit to fire weapon');
     this.updateCountersFor(unit);
@@ -236,9 +255,7 @@ export class MapScene implements Scene {
 
   private handlePointerMove(point: PointerPoint): void {
     if (!this.heldUnit || !this.heldMode || !this.heldOrigin || this.movingUnit) return;
-
-    this.aimSamples.push({ x: point.x, y: point.y, t: performance.now() });
-    if (this.aimSamples.length > 30) this.aimSamples.shift();
+    if (this.fireStage === 'charging') return;
 
     const dist = Math.hypot(point.x - this.heldOrigin.x, point.y - this.heldOrigin.y);
     if (dist < DRAG_DEADZONE) {
@@ -250,14 +267,18 @@ export class MapScene implements Scene {
     const range = this.heldMode === 'move' ? this.heldUnit.stats.moveRange : this.heldUnit.stats.shotRange;
     this.isDragging = true;
     this.dragTarget = clampToRadius(this.heldOrigin, point, range);
-    this.hud?.setStatus('Drag pencil away to set path');
+    this.hud?.setStatus(this.heldMode === 'move' ? 'Drag pencil away to set path' : 'Drag to aim, release to lock direction');
   }
 
   private handlePointerUp(): void {
     if (this.gameOver || !this.heldUnit || !this.heldMode) return;
+    // A power-lock tap resolves entirely on pointerdown; ignore the
+    // pointerup that immediately follows it instead of falling through
+    // to cancelHold() below.
+    if (this.confirmDelayRemainingMs > 0) return;
 
-    if (this.heldMode === 'fire') {
-      this.resolveFireRelease();
+    if (this.heldMode === 'fire' && this.fireStage === 'aiming') {
+      this.finishAiming();
       return;
     }
 
@@ -272,26 +293,35 @@ export class MapScene implements Scene {
     this.cancelHold();
   }
 
-  /** Resolves a fire-mode release via ShotSystem.resolveFlick instead of the held drag point. */
-  private resolveFireRelease(): void {
-    if (!this.heldUnit || !this.heldOrigin) {
+  /** Fixes the aim angle from the drag and starts the oscillating power charge. */
+  private finishAiming(): void {
+    if (!this.heldUnit || !this.heldOrigin || !this.isDragging || !this.dragTarget) {
       this.cancelHold();
       return;
     }
 
-    const result = resolveFlick(this.heldOrigin, this.aimSamples, this.heldUnit.stats.shotRange);
+    this.aimAngle = Math.atan2(this.dragTarget.y - this.heldOrigin.y, this.dragTarget.x - this.heldOrigin.x);
+    this.fireStage = 'charging';
+    this.powerPhaseElapsedMs = 0;
+    this.isDragging = false;
+    this.dragTarget = null;
+    this.audioFx.playSkid();
+    this.hud?.setStatus('Tap to lock power!');
+  }
 
-    if (!result.fired || !result.target) {
-      this.isDragging = false;
-      this.dragTarget = null;
-      this.postShotRemainingMs = MISS_STATUS_DURATION_MS;
-      this.hud?.setStatus('Too weak — flick harder!');
+  /** Locks the oscillating power value and resolves it into a fire target. */
+  private lockPowerAndFire(): void {
+    if (!this.heldUnit || !this.heldOrigin || this.aimAngle === null) {
+      this.cancelHold();
       return;
     }
 
-    this.confirmedTarget = result.target;
+    const power = triangleWave(this.powerPhaseElapsedMs, POWER_CYCLE_MS);
+    const target = resolvePoweredShot(this.heldOrigin, this.aimAngle, power, this.heldUnit.stats.shotRange);
+
+    this.fireStage = null;
+    this.confirmedTarget = target;
     this.confirmDelayRemainingMs = CONFIRM_DELAY_MS;
-    this.audioFx.playSkid();
     this.hud?.setStatus('Path set, ready to fire');
   }
 
@@ -361,12 +391,13 @@ export class MapScene implements Scene {
     }
   }
 
+  /** Hit test against the shot's impact point (not its flight path) — angle and power both matter. */
   private findHitUnit(shooter: Unit, target: PointerPoint): Unit | null {
-    let best: { unit: Unit; t: number } | null = null;
+    let best: { unit: Unit; dist: number } | null = null;
     for (const unit of this.units) {
       if (unit.side === shooter.side) continue;
-      const { distance, t } = distanceToSegment(unit.x, unit.y, shooter.x, shooter.y, target.x, target.y);
-      if (distance <= SHOT_HIT_RADIUS && (!best || t < best.t)) best = { unit, t };
+      const dist = Math.hypot(unit.x - target.x, unit.y - target.y);
+      if (dist <= SHOT_HIT_RADIUS && (!best || dist < best.dist)) best = { unit, dist };
     }
     return best?.unit ?? null;
   }
@@ -392,7 +423,8 @@ export class MapScene implements Scene {
       this.movingUnit !== null ||
       this.boomEffect !== null ||
       this.postShotRemainingMs > 0 ||
-      this.confirmDelayRemainingMs > 0;
+      this.confirmDelayRemainingMs > 0 ||
+      this.fireStage === 'charging';
     if (this.turnManager.activeSide !== 'player' || busy) return;
 
     this.cancelHold();
@@ -421,7 +453,9 @@ export class MapScene implements Scene {
     this.heldOrigin = null;
     this.isDragging = false;
     this.dragTarget = null;
-    this.aimSamples = [];
+    this.fireStage = null;
+    this.aimAngle = null;
+    this.powerPhaseElapsedMs = 0;
     this.confirmedTarget = null;
     this.confirmDelayRemainingMs = 0;
     this.movingUnit = null;
@@ -457,7 +491,8 @@ export class MapScene implements Scene {
   }
 
   /** Asks the AIController for the enemy's next move/shot and feeds it into
-   * the same confirm-delay pipeline handlePointerUp uses for the player. */
+   * the same confirm-delay pipeline handlePointerUp uses for the player.
+   * AI shots skip the aim/power gesture entirely — the target is exact. */
   private runNextAIStep(): void {
     const action = this.aiController.nextAction('enemy');
     if (!action) {
@@ -483,7 +518,9 @@ export class MapScene implements Scene {
     this.heldOrigin = null;
     this.isDragging = false;
     this.dragTarget = null;
-    this.aimSamples = [];
+    this.fireStage = null;
+    this.aimAngle = null;
+    this.powerPhaseElapsedMs = 0;
     this.boomEffect = null;
     this.postShotRemainingMs = 0;
     this.showDefaultStatus();
@@ -518,7 +555,8 @@ export class MapScene implements Scene {
       this.movingUnit !== null ||
       this.boomEffect !== null ||
       this.postShotRemainingMs > 0 ||
-      this.confirmDelayRemainingMs > 0;
+      this.confirmDelayRemainingMs > 0 ||
+      this.fireStage === 'charging';
     this.hud?.setEndTurnEnabled(!this.gameOver && this.turnManager.activeSide === 'player' && !busy);
   }
 
