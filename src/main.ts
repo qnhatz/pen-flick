@@ -1,7 +1,6 @@
-// RESUME: Session 4 — Shot Mechanic. When a held unit has no moves left
-// (heldMode === 'fire'), wire pointer drag to an aim line clamped to
-// shotRange; on release, resolve the trajectory against enemy bounding
-// boxes and show a BOOM banner + hit flash on impact, or a fading miss mark.
+// RESUME: Session 5 — Turn System. Add a TurnManager tracking per-unit
+// budgets across a full turn, wire the HUD's End Turn button to switch the
+// active Player, and reset movesRemaining/shotsRemaining at turn start.
 import { GameLoop } from './core/GameLoop';
 import { SceneManager } from './core/SceneManager';
 import { MapScene } from './scenes/MapScene';

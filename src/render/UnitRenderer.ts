@@ -112,3 +112,33 @@ export function drawPathPreview(
 
   ctx.restore();
 }
+
+/** Spiky "BOOM!!!" burst at an impact point, sized/faded by remaining lifeRatio (1 -> 0). */
+export function drawBoomEffect(ctx: CanvasRenderingContext2D, x: number, y: number, lifeRatio: number): void {
+  const scale = 1 + (1 - lifeRatio) * 0.6;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, lifeRatio));
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+
+  const spikes = 8;
+  const outerR = 22;
+  const innerR = 10;
+  ctx.beginPath();
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = i % 2 === 0 ? outerR : innerR;
+    const angle = (Math.PI * i) / spikes;
+    const px = Math.cos(angle) * r;
+    const py = Math.sin(angle) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = '#f59e0b';
+  ctx.strokeStyle = STYLE.ink;
+  ctx.lineWidth = 2;
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.restore();
+}

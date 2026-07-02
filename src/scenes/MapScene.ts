@@ -1,6 +1,6 @@
 import type { Scene } from '../core/SceneManager';
 import { renderMapToCanvas } from '../render/MapRenderer';
-import { drawUnit, drawRangeRing, drawPathPreview } from '../render/UnitRenderer';
+import { drawUnit, drawRangeRing, drawPathPreview, drawBoomEffect } from '../render/UnitRenderer';
 import { createUnit } from '../entities/registry';
 import type { Unit } from '../entities/Unit';
 import { HUD, type TallyEntry } from '../ui/HUD';
@@ -11,9 +11,12 @@ import type { MapData } from '../maps/types';
 const mapData = rawMapData as unknown as MapData;
 
 const HIT_RADIUS = 22;
+const SHOT_HIT_RADIUS = 16;
 const DRAG_DEADZONE = 8;
 const CONFIRM_DELAY_MS = 250;
 const MOVE_DURATION_MS = 450;
+const BOOM_DURATION_MS = 500;
+const MISS_STATUS_DURATION_MS = 500;
 
 type HeldMode = 'move' | 'fire';
 
@@ -30,12 +33,24 @@ function clampToRadius(origin: PointerPoint, point: PointerPoint, radius: number
   return { x: origin.x + dx * scale, y: origin.y + dy * scale };
 }
 
+/** Distance from point (px,py) to segment (x1,y1)-(x2,y2), plus how far along the segment (0-1). */
+function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSq));
+  const cx = x1 + t * dx;
+  const cy = y1 + t * dy;
+  return { distance: Math.hypot(px - cx, py - cy), t };
+}
+
 /**
  * Session 1 (Static Scene) + Session 2 (Selection & Radius Ring) + Session 3
- * (Move Mechanic): hold a player unit to select it (move mode takes
- * priority while moves remain, else fire mode — Session 4 wires fire
- * dragging), drag to set a path clamped to its move range, release to
- * animate the unit along that path and spend a Move.
+ * (Move Mechanic) + Session 4 (Shot Mechanic): hold a player unit to select
+ * it (move mode while moves remain, else fire mode), drag to set a
+ * path/aim line clamped to the relevant range, release to animate a move
+ * or resolve a shot. Hits remove the target with a BOOM burst; misses leave
+ * a faint permanent mark baked onto the map.
  */
 export class MapScene implements Scene {
   private readonly map: MapData = mapData;
@@ -57,6 +72,9 @@ export class MapScene implements Scene {
   private moveFrom: PointerPoint | null = null;
   private moveTo: PointerPoint | null = null;
   private moveProgress = 0;
+
+  private boomEffect: { x: number; y: number; remainingMs: number } | null = null;
+  private postShotRemainingMs = 0;
 
   constructor(
     private readonly container: HTMLElement,
@@ -95,7 +113,10 @@ export class MapScene implements Scene {
   update(deltaMs: number): void {
     if (this.confirmedTarget && this.confirmDelayRemainingMs > 0) {
       this.confirmDelayRemainingMs -= deltaMs;
-      if (this.confirmDelayRemainingMs <= 0) this.beginMoveAnimation();
+      if (this.confirmDelayRemainingMs <= 0) {
+        if (this.heldMode === 'move') this.beginMoveAnimation();
+        else this.resolveShot();
+      }
     }
 
     if (this.movingUnit && this.moveFrom && this.moveTo) {
@@ -103,6 +124,19 @@ export class MapScene implements Scene {
       this.movingUnit.x = lerp(this.moveFrom.x, this.moveTo.x, this.moveProgress);
       this.movingUnit.y = lerp(this.moveFrom.y, this.moveTo.y, this.moveProgress);
       if (this.moveProgress >= 1) this.finishMoveAnimation();
+    }
+
+    if (this.boomEffect) {
+      this.boomEffect.remainingMs -= deltaMs;
+      if (this.boomEffect.remainingMs <= 0) {
+        this.boomEffect = null;
+        this.cancelHold();
+      }
+    }
+
+    if (this.postShotRemainingMs > 0) {
+      this.postShotRemainingMs -= deltaMs;
+      if (this.postShotRemainingMs <= 0) this.cancelHold();
     }
   }
 
@@ -114,16 +148,20 @@ export class MapScene implements Scene {
         this.heldMode === 'move' ? this.heldUnit.stats.moveRange : this.heldUnit.stats.shotRange;
       drawRangeRing(ctx, this.heldUnit, radius, this.heldMode);
 
-      if (this.heldMode === 'move' && this.isDragging && this.dragTarget) {
-        drawPathPreview(ctx, this.heldUnit, this.dragTarget, 'move');
+      if (this.isDragging && this.dragTarget) {
+        drawPathPreview(ctx, this.heldUnit, this.dragTarget, this.heldMode);
       }
     }
 
     for (const unit of this.units) drawUnit(ctx, unit);
+
+    if (this.boomEffect) {
+      drawBoomEffect(ctx, this.boomEffect.x, this.boomEffect.y, this.boomEffect.remainingMs / BOOM_DURATION_MS);
+    }
   }
 
   private handlePointerDown(point: PointerPoint): void {
-    if (this.movingUnit) return;
+    if (this.movingUnit || this.boomEffect || this.postShotRemainingMs > 0) return;
     const unit = this.findSelectableUnitAt(point);
     if (!unit) return;
 
@@ -138,7 +176,7 @@ export class MapScene implements Scene {
   }
 
   private handlePointerMove(point: PointerPoint): void {
-    if (!this.heldUnit || this.heldMode !== 'move' || !this.heldOrigin || this.movingUnit) return;
+    if (!this.heldUnit || !this.heldMode || !this.heldOrigin || this.movingUnit) return;
 
     const dist = Math.hypot(point.x - this.heldOrigin.x, point.y - this.heldOrigin.y);
     if (dist < DRAG_DEADZONE) {
@@ -147,18 +185,19 @@ export class MapScene implements Scene {
       return;
     }
 
+    const range = this.heldMode === 'move' ? this.heldUnit.stats.moveRange : this.heldUnit.stats.shotRange;
     this.isDragging = true;
-    this.dragTarget = clampToRadius(this.heldOrigin, point, this.heldUnit.stats.moveRange);
+    this.dragTarget = clampToRadius(this.heldOrigin, point, range);
     this.hud?.setStatus('Drag pencil away to set path');
   }
 
   private handlePointerUp(): void {
     if (!this.heldUnit || !this.heldMode) return;
 
-    if (this.heldMode === 'move' && this.isDragging && this.dragTarget) {
+    if (this.isDragging && this.dragTarget) {
       this.confirmedTarget = this.dragTarget;
       this.confirmDelayRemainingMs = CONFIRM_DELAY_MS;
-      this.hud?.setStatus('Path set, ready to move');
+      this.hud?.setStatus(this.heldMode === 'move' ? 'Path set, ready to move' : 'Path set, ready to fire');
       return;
     }
 
@@ -190,12 +229,66 @@ export class MapScene implements Scene {
     this.cancelHold();
   }
 
+  private resolveShot(): void {
+    if (!this.heldUnit || !this.confirmedTarget) {
+      this.cancelHold();
+      return;
+    }
+    const shooter = this.heldUnit;
+    const target = this.confirmedTarget;
+    const hitUnit = this.findHitUnit(shooter, target);
+
+    shooter.shotsRemaining = Math.max(0, shooter.shotsRemaining - 1);
+    this.isDragging = false;
+    this.dragTarget = null;
+    this.confirmedTarget = null;
+    this.confirmDelayRemainingMs = 0;
+
+    if (hitUnit) {
+      const idx = this.units.indexOf(hitUnit);
+      if (idx >= 0) this.units.splice(idx, 1);
+      this.boomEffect = { x: hitUnit.x, y: hitUnit.y, remainingMs: BOOM_DURATION_MS };
+      this.hud?.setStatus('BOOM!!!');
+      this.hud?.setTally(this.tallyEntries());
+    } else {
+      this.drawMissMark(shooter, target);
+      this.postShotRemainingMs = MISS_STATUS_DURATION_MS;
+      this.hud?.setStatus('Miss!');
+    }
+  }
+
+  private findHitUnit(shooter: Unit, target: PointerPoint): Unit | null {
+    let best: { unit: Unit; t: number } | null = null;
+    for (const unit of this.units) {
+      if (unit.side === shooter.side) continue;
+      const { distance, t } = distanceToSegment(unit.x, unit.y, shooter.x, shooter.y, target.x, target.y);
+      if (distance <= SHOT_HIT_RADIUS && (!best || t < best.t)) best = { unit, t };
+    }
+    return best?.unit ?? null;
+  }
+
+  private drawMissMark(shooter: Unit, target: PointerPoint): void {
+    const ctx = this.mapImage.getContext('2d');
+    if (!ctx) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(43, 43, 43, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(shooter.x, shooter.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   private cancelHold(): void {
     this.heldUnit = null;
     this.heldMode = null;
     this.heldOrigin = null;
     this.isDragging = false;
     this.dragTarget = null;
+    this.boomEffect = null;
+    this.postShotRemainingMs = 0;
     this.showDefaultStatus();
     this.updateCountersFor(null);
     this.hud?.setTally(this.tallyEntries());
