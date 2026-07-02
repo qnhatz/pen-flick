@@ -13,8 +13,74 @@ html, body {
   justify-content: center;
 }
 
+#game-container {
+  position: relative;
+  width: 960px;
+  height: 640px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
 #game-canvas {
-  max-width: 100%;
-  max-height: 100%;
+  display: block;
+  width: 960px;
+  height: 640px;
   touch-action: none;
+}
+
+.hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive, sans-serif;
+  color: #2b2b2b;
+}
+
+.hud-chip {
+  display: inline-block;
+  background: #fdfcf7;
+  border: 2px solid #2b2b2b;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 14px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
+  pointer-events: auto;
+}
+
+.hud-top-left,
+.hud-top-right {
+  position: absolute;
+  top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hud-top-left {
+  left: 10px;
+  align-items: flex-start;
+}
+
+.hud-top-right {
+  right: 10px;
+  align-items: flex-end;
+}
+
+.hud-status {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.hud-tally {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.hud-tally-chip {
+  font-size: 12px;
 }

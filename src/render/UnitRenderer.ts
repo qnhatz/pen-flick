@@ -1,2 +1,60 @@
-// Implemented in Session 1 — Static Scene (draws tank/plane sprites for each Unit).
-export {};
+import { STYLE } from './style';
+import type { Unit } from '../entities/Unit';
+
+const SIDE_COLOR: Record<Unit['side'], string> = {
+  player: '#1d4ed8',
+  enemy: '#b91c1c',
+};
+
+function drawTank(ctx: CanvasRenderingContext2D, facing: 1 | -1): void {
+  ctx.beginPath();
+  ctx.rect(-13, -9, 26, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, 7, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, -16 * facing);
+  ctx.lineWidth = 3;
+  ctx.stroke();
+}
+
+function drawPlane(ctx: CanvasRenderingContext2D): void {
+  ctx.beginPath();
+  ctx.moveTo(0, -14);
+  ctx.lineTo(4, -4);
+  ctx.lineTo(16, 4);
+  ctx.lineTo(4, 4);
+  ctx.lineTo(6, 14);
+  ctx.lineTo(0, 9);
+  ctx.lineTo(-6, 14);
+  ctx.lineTo(-4, 4);
+  ctx.lineTo(-16, 4);
+  ctx.lineTo(-4, -4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+/** Draws a single unit's top-down sketch icon at its current position. */
+export function drawUnit(ctx: CanvasRenderingContext2D, unit: Unit): void {
+  ctx.save();
+  ctx.translate(unit.x, unit.y);
+  ctx.fillStyle = SIDE_COLOR[unit.side];
+  ctx.strokeStyle = STYLE.ink;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+
+  if (unit.kind === 'tank') {
+    drawTank(ctx, unit.side === 'player' ? -1 : 1);
+  } else {
+    drawPlane(ctx);
+  }
+
+  ctx.restore();
+}

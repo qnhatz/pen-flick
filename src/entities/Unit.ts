@@ -1,4 +1,5 @@
 export type UnitSide = 'player' | 'enemy';
+export type UnitKind = 'tank' | 'plane';
 
 export interface UnitStats {
   moveRange: number;
@@ -12,15 +13,17 @@ export abstract class Unit {
   x: number;
   y: number;
   readonly side: UnitSide;
+  readonly kind: UnitKind;
   readonly stats: UnitStats;
   movesRemaining: number;
   shotsRemaining: number;
   alive = true;
 
-  constructor(x: number, y: number, side: UnitSide, stats: UnitStats) {
+  constructor(x: number, y: number, side: UnitSide, kind: UnitKind, stats: UnitStats) {
     this.x = x;
     this.y = y;
     this.side = side;
+    this.kind = kind;
     this.stats = stats;
     this.movesRemaining = stats.movesPerTurn;
     this.shotsRemaining = stats.shotsPerTurn;
