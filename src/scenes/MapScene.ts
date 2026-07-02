@@ -5,6 +5,7 @@ import { createUnit } from '../entities/registry';
 import type { Unit, UnitKind, UnitSide } from '../entities/Unit';
 import { TurnManager } from '../systems/TurnManager';
 import { AIController } from '../systems/AIController';
+import { resolveFlick, type AimSample } from '../systems/ShotSystem';
 import { HUD, type TallyEntry } from '../ui/HUD';
 import { InputManager, type PointerPoint } from '../core/InputManager';
 import { AudioFx } from '../core/AudioFx';
@@ -68,6 +69,12 @@ function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: n
  * that re-seeds units/map/turn state in place. Hits get a reddened wobble
  * flash alongside the BOOM burst, and skid/whoosh/boom sounds (synthesized,
  * no audio files) play on path-confirm and shot resolution.
+ *
+ * Skill pass: firing no longer resolves to wherever the drag point sits.
+ * Release velocity (from ShotSystem.resolveFlick) decides it instead — a
+ * release under the "skid threshold" speed doesn't fire at all, and a
+ * wobbly (non-straight) flick adds angular jitter on top of a small
+ * baseline spread. Move mode is untouched (still drag-to-point).
  */
 export class MapScene implements Scene {
   private readonly map: MapData = mapData;
@@ -84,6 +91,7 @@ export class MapScene implements Scene {
   private heldOrigin: PointerPoint | null = null;
   private isDragging = false;
   private dragTarget: PointerPoint | null = null;
+  private aimSamples: AimSample[] = [];
 
   private confirmedTarget: PointerPoint | null = null;
   private confirmDelayRemainingMs = 0;
@@ -220,6 +228,7 @@ export class MapScene implements Scene {
     this.heldOrigin = { x: unit.x, y: unit.y };
     this.isDragging = false;
     this.dragTarget = null;
+    this.aimSamples = [{ x: point.x, y: point.y, t: performance.now() }];
 
     this.hud?.setStatus(this.heldMode === 'move' ? 'Hold unit to move' : 'Hold unit to fire weapon');
     this.updateCountersFor(unit);
@@ -227,6 +236,9 @@ export class MapScene implements Scene {
 
   private handlePointerMove(point: PointerPoint): void {
     if (!this.heldUnit || !this.heldMode || !this.heldOrigin || this.movingUnit) return;
+
+    this.aimSamples.push({ x: point.x, y: point.y, t: performance.now() });
+    if (this.aimSamples.length > 30) this.aimSamples.shift();
 
     const dist = Math.hypot(point.x - this.heldOrigin.x, point.y - this.heldOrigin.y);
     if (dist < DRAG_DEADZONE) {
@@ -244,15 +256,43 @@ export class MapScene implements Scene {
   private handlePointerUp(): void {
     if (this.gameOver || !this.heldUnit || !this.heldMode) return;
 
+    if (this.heldMode === 'fire') {
+      this.resolveFireRelease();
+      return;
+    }
+
     if (this.isDragging && this.dragTarget) {
       this.confirmedTarget = this.dragTarget;
       this.confirmDelayRemainingMs = CONFIRM_DELAY_MS;
       this.audioFx.playSkid();
-      this.hud?.setStatus(this.heldMode === 'move' ? 'Path set, ready to move' : 'Path set, ready to fire');
+      this.hud?.setStatus('Path set, ready to move');
       return;
     }
 
     this.cancelHold();
+  }
+
+  /** Resolves a fire-mode release via ShotSystem.resolveFlick instead of the held drag point. */
+  private resolveFireRelease(): void {
+    if (!this.heldUnit || !this.heldOrigin) {
+      this.cancelHold();
+      return;
+    }
+
+    const result = resolveFlick(this.heldOrigin, this.aimSamples, this.heldUnit.stats.shotRange);
+
+    if (!result.fired || !result.target) {
+      this.isDragging = false;
+      this.dragTarget = null;
+      this.postShotRemainingMs = MISS_STATUS_DURATION_MS;
+      this.hud?.setStatus('Too weak — flick harder!');
+      return;
+    }
+
+    this.confirmedTarget = result.target;
+    this.confirmDelayRemainingMs = CONFIRM_DELAY_MS;
+    this.audioFx.playSkid();
+    this.hud?.setStatus('Path set, ready to fire');
   }
 
   private beginMoveAnimation(): void {
@@ -381,6 +421,7 @@ export class MapScene implements Scene {
     this.heldOrigin = null;
     this.isDragging = false;
     this.dragTarget = null;
+    this.aimSamples = [];
     this.confirmedTarget = null;
     this.confirmDelayRemainingMs = 0;
     this.movingUnit = null;
@@ -442,6 +483,7 @@ export class MapScene implements Scene {
     this.heldOrigin = null;
     this.isDragging = false;
     this.dragTarget = null;
+    this.aimSamples = [];
     this.boomEffect = null;
     this.postShotRemainingMs = 0;
     this.showDefaultStatus();
