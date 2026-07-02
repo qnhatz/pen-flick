@@ -12,6 +12,9 @@ export class HUD {
   private readonly tallyEl: HTMLDivElement;
   private readonly playerNameEl: HTMLDivElement;
   private readonly endTurnEl: HTMLButtonElement;
+  private readonly gameOverEl: HTMLDivElement;
+  private readonly gameOverMessageEl: HTMLDivElement;
+  private readonly restartEl: HTMLButtonElement;
 
   constructor(container: HTMLElement, playerName: string, onEndTurn: () => void) {
     this.root = document.createElement('div');
@@ -40,7 +43,19 @@ export class HUD {
     this.tallyEl = document.createElement('div');
     this.tallyEl.className = 'hud-tally';
 
-    this.root.append(topLeft, this.statusEl, topRight, this.tallyEl);
+    this.gameOverMessageEl = document.createElement('div');
+    this.gameOverMessageEl.className = 'hud-gameover-message';
+
+    this.restartEl = document.createElement('button');
+    this.restartEl.type = 'button';
+    this.restartEl.className = 'hud-chip hud-restart';
+    this.restartEl.textContent = 'Restart';
+
+    this.gameOverEl = document.createElement('div');
+    this.gameOverEl.className = 'hud-gameover hud-gameover-hidden';
+    this.gameOverEl.append(this.gameOverMessageEl, this.restartEl);
+
+    this.root.append(topLeft, this.statusEl, topRight, this.tallyEl, this.gameOverEl);
     container.appendChild(this.root);
   }
 
@@ -70,6 +85,17 @@ export class HUD {
         return chip;
       })
     );
+  }
+
+  showGameOver(message: string, onRestart: () => void): void {
+    this.gameOverMessageEl.textContent = message;
+    this.gameOverEl.classList.remove('hud-gameover-hidden');
+    this.restartEl.onclick = onRestart;
+  }
+
+  hideGameOver(): void {
+    this.gameOverEl.classList.add('hud-gameover-hidden');
+    this.restartEl.onclick = null;
   }
 
   destroy(): void {

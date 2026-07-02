@@ -1,7 +1,7 @@
-// RESUME: Session 7 — Win/Lose & Polish. Check after each resolveShot hit
-// whether one side's units[] is empty; if so show a game-over overlay with
-// a restart button instead of continuing the turn loop. Also: hit flash on
-// the target's sprite, Web Audio skid/whoosh/boom sounds.
+// RESUME: Session 8 — Mobile Port. Add Capacitor (`npx cap add android` /
+// `npx cap add ios`), verify the InputManager's Pointer Events path and
+// safe-area/viewport handling on-device. No gameplay code should need to
+// change — this session is native shell + build config + device QA.
 import { GameLoop } from './core/GameLoop';
 import { SceneManager } from './core/SceneManager';
 import { MapScene } from './scenes/MapScene';

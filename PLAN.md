@@ -87,8 +87,8 @@ pen-flick/
 | 4 | Shot Mechanic | Aim drag, fire on release, line-of-fire resolve, BOOM effect | ✅ Done |
 | 5 | Turn System | Move/Shot budget per unit, End Turn, player↔opponent switch | ✅ Done |
 | 6 | Opponent AI | Basic CPU: pick unit, move toward/away, fire at nearest target | ✅ Done |
-| 7 | Win/Lose & Polish | Unit-loss tally, game-over state, hit flash, sound | ⬜ Next |
-| 8 | Mobile Port | Capacitor wrap, Android/iOS build config, touch QA | ⬜ |
+| 7 | Win/Lose & Polish | Unit-loss tally, game-over state, hit flash, sound | ✅ Done |
+| 8 | Mobile Port | Capacitor wrap, Android/iOS build config, touch QA | ⬜ Next |
 | 9 | Multiplayer | `NetworkPlayer` implementation, matchmaking/sync | ⬜ |
 
 ---
