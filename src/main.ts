@@ -1,6 +1,6 @@
-// RESUME: Session 2 — Unit Selection & Radius Ring. Hit-test pointer/touch
-// against unit entities in MapScene; on hold, draw a dashed range ring and
-// swap HUD status text contextually (move vs. fire).
+// RESUME: Session 3 — Move Mechanic. On pointer drag from a held unit in
+// move mode, draw a path line clamped to its moveRange ring; on release,
+// animate the unit along that path and decrement movesRemaining.
 import { GameLoop } from './core/GameLoop';
 import { SceneManager } from './core/SceneManager';
 import { MapScene } from './scenes/MapScene';
@@ -17,7 +17,7 @@ function resizeCanvas(): void {
 resizeCanvas();
 
 const scenes = new SceneManager();
-scenes.goto(new MapScene(container));
+scenes.goto(new MapScene(container, canvas));
 
 const loop = new GameLoop((deltaMs) => {
   scenes.update(deltaMs);

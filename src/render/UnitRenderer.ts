@@ -58,3 +58,20 @@ export function drawUnit(ctx: CanvasRenderingContext2D, unit: Unit): void {
 
   ctx.restore();
 }
+
+const RING_COLOR: Record<'move' | 'fire', string> = {
+  move: '#1d4ed8',
+  fire: '#b91c1c',
+};
+
+/** Dashed range ring shown while a unit is held, sized to its move or shot range. */
+export function drawRangeRing(ctx: CanvasRenderingContext2D, unit: Unit, radius: number, mode: 'move' | 'fire'): void {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(unit.x, unit.y, radius, 0, Math.PI * 2);
+  ctx.setLineDash([6, 6]);
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = RING_COLOR[mode];
+  ctx.stroke();
+  ctx.restore();
+}
