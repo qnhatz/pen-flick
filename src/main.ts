@@ -1,7 +1,7 @@
-// RESUME: Session 6 — Opponent AI. Replace MapScene's ENEMY_TURN_PLACEHOLDER_MS
-// timeout (beginEnemyTurn/beginPlayerTurn) with an AIController that picks an
-// enemy unit with budget remaining and issues a move/shot via the same
-// MoveSystem/ShotSystem-shaped resolution path the player uses.
+// RESUME: Session 7 — Win/Lose & Polish. Check after each resolveShot hit
+// whether one side's units[] is empty; if so show a game-over overlay with
+// a restart button instead of continuing the turn loop. Also: hit flash on
+// the target's sprite, Web Audio skid/whoosh/boom sounds.
 import { GameLoop } from './core/GameLoop';
 import { SceneManager } from './core/SceneManager';
 import { MapScene } from './scenes/MapScene';
