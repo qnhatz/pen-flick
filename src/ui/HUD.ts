@@ -10,18 +10,27 @@ export class HUD {
   private readonly movesEl: HTMLDivElement;
   private readonly shotsEl: HTMLDivElement;
   private readonly tallyEl: HTMLDivElement;
+  private readonly playerNameEl: HTMLDivElement;
+  private readonly endTurnEl: HTMLButtonElement;
+  private readonly gameOverEl: HTMLDivElement;
+  private readonly gameOverMessageEl: HTMLDivElement;
+  private readonly restartEl: HTMLButtonElement;
 
-  constructor(container: HTMLElement, playerName: string) {
+  constructor(container: HTMLElement, playerName: string, onEndTurn: () => void) {
     this.root = document.createElement('div');
     this.root.className = 'hud';
 
+    this.endTurnEl = document.createElement('button');
+    this.endTurnEl.type = 'button';
+    this.endTurnEl.className = 'hud-chip hud-end-turn';
+    this.endTurnEl.textContent = 'End Turn';
+    this.endTurnEl.addEventListener('click', onEndTurn);
+
+    this.playerNameEl = this.makeChip(playerName, 'hud-player-name');
+
     const topLeft = document.createElement('div');
     topLeft.className = 'hud-top-left';
-    topLeft.append(
-      this.makeChip('II', 'hud-pause'),
-      this.makeChip('End Turn', 'hud-end-turn'),
-      this.makeChip(playerName, 'hud-player-name')
-    );
+    topLeft.append(this.makeChip('II', 'hud-pause'), this.endTurnEl, this.playerNameEl);
 
     this.statusEl = this.makeChip('', 'hud-status');
 
@@ -34,7 +43,19 @@ export class HUD {
     this.tallyEl = document.createElement('div');
     this.tallyEl.className = 'hud-tally';
 
-    this.root.append(topLeft, this.statusEl, topRight, this.tallyEl);
+    this.gameOverMessageEl = document.createElement('div');
+    this.gameOverMessageEl.className = 'hud-gameover-message';
+
+    this.restartEl = document.createElement('button');
+    this.restartEl.type = 'button';
+    this.restartEl.className = 'hud-chip hud-restart';
+    this.restartEl.textContent = 'Restart';
+
+    this.gameOverEl = document.createElement('div');
+    this.gameOverEl.className = 'hud-gameover hud-gameover-hidden';
+    this.gameOverEl.append(this.gameOverMessageEl, this.restartEl);
+
+    this.root.append(topLeft, this.statusEl, topRight, this.tallyEl, this.gameOverEl);
     container.appendChild(this.root);
   }
 
@@ -47,6 +68,14 @@ export class HUD {
     this.shotsEl.textContent = `${shots} Shots`;
   }
 
+  setPlayerName(name: string): void {
+    this.playerNameEl.textContent = name;
+  }
+
+  setEndTurnEnabled(enabled: boolean): void {
+    this.endTurnEl.disabled = !enabled;
+  }
+
   setTally(entries: TallyEntry[]): void {
     this.tallyEl.replaceChildren(
       ...entries.map((entry) => {
@@ -56,6 +85,17 @@ export class HUD {
         return chip;
       })
     );
+  }
+
+  showGameOver(message: string, onRestart: () => void): void {
+    this.gameOverMessageEl.textContent = message;
+    this.gameOverEl.classList.remove('hud-gameover-hidden');
+    this.restartEl.onclick = onRestart;
+  }
+
+  hideGameOver(): void {
+    this.gameOverEl.classList.add('hud-gameover-hidden');
+    this.restartEl.onclick = null;
   }
 
   destroy(): void {

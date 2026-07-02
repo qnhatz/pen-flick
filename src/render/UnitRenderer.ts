@@ -1,5 +1,5 @@
 import { STYLE } from './style';
-import type { Unit } from '../entities/Unit';
+import type { Unit, UnitKind, UnitSide } from '../entities/Unit';
 
 const SIDE_COLOR: Record<Unit['side'], string> = {
   player: '#1d4ed8',
@@ -139,6 +139,34 @@ export function drawBoomEffect(ctx: CanvasRenderingContext2D, x: number, y: numb
   ctx.lineWidth = 2;
   ctx.fill();
   ctx.stroke();
+
+  ctx.restore();
+}
+
+/** Reddened, wobbling copy of a unit's sprite at the moment it's hit, fading over lifeRatio (1 -> 0). */
+export function drawHitFlash(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  kind: UnitKind,
+  side: UnitSide,
+  lifeRatio: number
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  const wobbleDeg = Math.sin(lifeRatio * Math.PI * 6) * lifeRatio * 12;
+  ctx.rotate((wobbleDeg * Math.PI) / 180);
+  ctx.globalAlpha = Math.max(0, Math.min(1, lifeRatio));
+  ctx.fillStyle = '#dc2626';
+  ctx.strokeStyle = STYLE.ink;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+
+  if (kind === 'tank') {
+    drawTank(ctx, side === 'player' ? -1 : 1);
+  } else {
+    drawPlane(ctx);
+  }
 
   ctx.restore();
 }

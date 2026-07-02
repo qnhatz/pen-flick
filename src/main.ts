@@ -1,6 +1,7 @@
-// RESUME: Session 5 — Turn System. Add a TurnManager tracking per-unit
-// budgets across a full turn, wire the HUD's End Turn button to switch the
-// active Player, and reset movesRemaining/shotsRemaining at turn start.
+// RESUME: Session 8 — Mobile Port. Add Capacitor (`npx cap add android` /
+// `npx cap add ios`), verify the InputManager's Pointer Events path and
+// safe-area/viewport handling on-device. No gameplay code should need to
+// change — this session is native shell + build config + device QA.
 import { GameLoop } from './core/GameLoop';
 import { SceneManager } from './core/SceneManager';
 import { MapScene } from './scenes/MapScene';
