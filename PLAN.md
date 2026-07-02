@@ -95,46 +95,53 @@ pen-flick/
 
 ## Session Details
 
-### ⬜ Session 0 — Project Scaffolding
+### ✅ Session 0 — Project Scaffolding
 - `npm create vite@latest` (vanilla-ts template), set up folder structure above.
 - `vite.config.js` with `base: '/pen-flick/'` for GitHub Pages.
 - GitHub Actions workflow: build on push to main/deploy branch → publish `dist/` to `gh-pages`.
 - Empty `Player` interface, `SceneManager`, `GameLoop` wired to a blank canvas as a smoke test.
 
-### ⬜ Session 1 — Static Scene
+### ✅ Session 1 — Static Scene
 - `MapRenderer` reads a map JSON (terrain shapes, obstacles, spawn points) and draws the hand-drawn-style scene: sketchy roads/rivers, cross-hatched buildings, scribble-shaded hedges/trees, wood-grain desk background.
 - `map-01.json` as the first map; place starting units (tanks, planes) for two sides per spawn points.
 - HUD shell: `Pause`, `Moves` / `Shots` counters, player/army name label, unit-loss tally strip — wired up but not yet driven by game state.
 
-### ⬜ Session 2 — Unit Selection & Radius Ring
+### ✅ Session 2 — Unit Selection & Radius Ring
 - `InputManager` hit-tests pointer/touch against unit entities.
 - Touch-and-hold a unit → `MoveSystem`/`ShotSystem` (whichever is active) reports a range → renderer draws dashed radius ring.
 - Status bar text swaps contextually: `"Hold unit to fire weapon"` vs. move-hold state, based on remaining Shots/Moves.
 
-### ⬜ Session 3 — Move Mechanic
+### ✅ Session 3 — Move Mechanic
 - On hold+drag: `MoveSystem` computes a path clamped to the radius ring; renderer draws the path line/arrow.
 - Status bar: `"Drag pencil away to set path"` → on release `"Path set, ready to move"`.
 - Confirm → `"Move in progress…"` → animate unit along the path.
 - Decrement `Moves` on the unit; disallow further move once budget hits 0.
 
-### ⬜ Session 4 — Shot Mechanic
+### ✅ Session 4 — Shot Mechanic
 - Same gesture, `ShotSystem` in fire mode: `"Hold unit to fire weapon"` → `"Path set, ready to fire"`.
 - On release: resolve trajectory against enemy unit bounding boxes.
 - Hit → `"BOOM!!!"` banner + hit flash/particle, damage/remove target via `entities/registry.ts` type stats.
 - Miss → line fades as a faint mark on the map (paper-ink persistence).
 - Decrement `Shots`.
+- **Skill pass (post-launch feedback):** drag-to-point aim was too easy — always hit if pointed
+  at the target. `ShotSystem.resolveFlick()` now resolves fire-mode releases from release
+  *velocity* (last ~120ms of pointer samples) instead of the held point: below a minimum
+  speed ("skid threshold") nothing fires (shot not consumed — "Too weak — flick harder!");
+  above it, direction/reach come from the flick vector, with angular jitter that grows for a
+  wobbly (non-straight) release. Move mode is unaffected. AI shots stay precise (AIController
+  doesn't "drag", so it skips this path).
 
-### ⬜ Session 5 — Turn System
+### ✅ Session 5 — Turn System
 - `TurnManager` tracks per-unit Move/Shot remaining; HUD counters reflect the selected unit.
 - `End Turn` → reset budgets for the next `Player`, switch active player via the `Player` interface, clear selection.
 - State machine: `player_turn (select → act → …) → end_turn → opponent_turn → end_turn → …`.
 
-### ⬜ Session 6 — Opponent AI
+### ✅ Session 6 — Opponent AI
 - `AIController` implements the same `Player` interface as `LocalPlayer`: picks a unit with budget, chooses move (advance/flank) or shot (nearest/weakest target in range).
 - Small delay before each AI action for readability.
 - Reuses `MoveSystem`/`ShotSystem` — no special-cased AI physics.
 
-### ⬜ Session 7 — Win/Lose & Polish
+### ✅ Session 7 — Win/Lose & Polish
 - Unit-loss tally strip updates live from entity state.
 - Win when one side's units are all destroyed → game-over overlay + restart.
 - Hit flash, Web Audio synthesized sounds (skid/flick, whoosh, boom).
